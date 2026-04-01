@@ -251,71 +251,40 @@ cd kontex-dashboard
 
 ---
 
-### Sprint 2 — Snapshot Timeline + Context Inspector
+### Sprint 3 — Rollback Drawer
 
-**Prompt 2.1 — Session Detail layout**
+**Prompt 3.1 — Rollback UI**
 ```
-Build src/components/detail/SessionDetail.jsx as a horizontal split-pane:
-- Left pane: 280px fixed width, holds SnapshotTimeline
-- Right pane: flex-1, holds ContextInspector
-- Divider: 1px solid #1E1E22, no drag handle needed for MVP
-- Top of the page: session name (large, DM Sans medium) + status badge + back arrow
+Build src/components/rollback/RollbackDrawer.jsx as a right-side slide-in drawer (not a modal):
+- Width: 380px, slides in from right over the content
+- Backdrop: semi-transparent #0A0A0B at 80% opacity
+- Header: "Restore Checkpoint" in DM Sans medium + close X button
 
-Build src/components/detail/SnapshotTimeline.jsx:
-- Data source: mockTimeline from src/data/mock.js
-  (real API shape from GET /v1/sessions/:id/snapshots/timeline)
-- Each item has: id, label, taskId, taskName, source, enriched, tokenTotal, tokenDelta, createdAt
-- Vertical timeline of checkpoint nodes
-- Each node: circle (8px, border teal) + label + taskName (2xs, subtle) + timestamp (mono, 2xs, subtle)
-- Active/selected node: circle filled teal, label text-white
-- Connecting line: 1px solid #1E1E22 between nodes
-- Clicking a node selects it and updates the right pane
-- Below each node show token delta (e.g. "+3,600 tokens") in amber mono text
-  (first node shows tokenTotal, subsequent nodes show tokenDelta)
-- Source badge: small pill — "proxy" in teal, "log_watcher" in amber, "mcp" in muted
-- Enrichment indicator: small dot next to label when enriched === true
-- At the bottom: "Rollback to checkpoint" button (amber, outline style)
-  - Only enabled when a non-latest snapshot is selected
-  - Clicking opens the RollbackDrawer
-```
+Body shows diff data from mockDiff in src/data/mock.js.
+Real API: GET /v1/sessions/:id/diff?from={snapshotId}&to={targetSnapshotId}
+Response: { added: string[], removed: string[], token_delta: number }
 
-**Prompt 2.2 — Context Inspector**
-```
-Build src/components/detail/ContextInspector.jsx that displays the selected snapshot's bundle
-contents. Use mockSnapshot.bundle from src/data/mock.js for dev.
+Display:
+- "Restoring to: [snapshot label]"
+- "Files added in this restore:" — list from diff.added, each with green left border
+- "Files removed from current context:" — list from diff.removed, each with red left border
+- Total token delta: diff.token_delta formatted as "+4,500" or "−3,200" in large mono amber text
+  (positive = tokens added back, negative = tokens removed)
 
-Real API: GET /v1/snapshots/:id returns { id, taskId, label, tokenTotal, model, source,
-enriched, enrichedAt, embedded, r2Key, createdAt, bundle }
-The bundle field is the ContextBundle: { files, toolCalls, messages, reasoning, logEvents }
+Footer:
+- "Cancel" — ghost/outline, closes drawer
+- "Confirm Rollback" — solid amber background, dark text, bold
 
-Four sections, each collapsible with a chevron:
+The Confirm Rollback action calls POST /v1/snapshots/:targetSnapshotId/rollback (no request body).
+Response: { rollback_snapshot_id, source_snapshot_id, label, captured_at, token_total, bundle }
+On success: close drawer + refresh timeline. The new snapshot appears at the end — do NOT remove
+any existing snapshots (immutability invariant: rollback creates, never deletes).
 
-1. Files (bundle.files)
-   - List of file paths with a file icon (lucide)
-   - Each row: path in mono font + tokenCount badge on the right (IBM Plex Mono, subtle)
-   - If no files: show empty state "No files captured"
+Warning text below buttons (small, subtle):
+"This creates a new snapshot restoring the selected checkpoint state.
+Original history is preserved."
 
-2. Messages (bundle.messages)
-   - Each message: role badge (user=teal, assistant=subtle) + content (truncated to 2 lines)
-   - Timestamp if present, in mono subtle
-   - If bundle.reasoning is present, show it as a collapsible "Reasoning" sub-section
-     with amber left border
-
-3. Tool Calls (bundle.toolCalls)
-   - Each call: tool name in mono + input (truncated to 60 chars) + status dot + timestamp
-   - status: "success" = green dot, "error" = red dot
-   - If no tool calls: empty state "No tool calls recorded"
-
-4. Log Events (bundle.logEvents — enriched by log watcher)
-   - Only shown when bundle.logEvents.length > 0 OR snapshot.enriched === true
-   - Each event: type badge + timestamp + data (collapsed JSON)
-   - Section header shows "Enriched" indicator dot when enriched === true
-
-Section header: uppercase, letter-spacing, 0.65rem, text-subtle
-Top of inspector: snapshot metadata bar — label, model, source badge, tokenTotal in mono,
-createdAt timestamp. If enriched: small "enriched" pill in amber.
-
-No chat messages display. No AI response list. This is state inspection.
+No undo. No chat. No input fields.
 ```
 
 ---
