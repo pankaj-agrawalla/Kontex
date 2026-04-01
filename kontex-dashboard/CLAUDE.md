@@ -251,6 +251,59 @@ cd kontex-dashboard
 
 ---
 
+## Integration Phase
+
+This section governs API wiring. Read it alongside `../kontex-wiring-buildguide.md`, which contains the sprint-by-sprint prompts for connecting every component to the real backend.
+
+**Hook conventions:**
+- All data-fetching hooks live in `src/hooks/useKontexAPI.js`
+- Every hook uses `@tanstack/react-query` (`useQuery` or `useMutation`)
+- No component calls `fetch` or `axios` directly — hooks only
+
+**API client:**
+- Base fetcher is in `src/api/client.js`
+- Reads `VITE_KONTEX_API_URL` from `import.meta.env`
+- Reads API key from `localStorage.getItem("kontex_api_key")`
+- Sends `Authorization: Bearer {key}` on every request
+- Throws `ApiError` (with `.status` and `.code`) on non-2xx responses
+
+**Auth gate:**
+- `src/components/auth/ApiKeyGate.jsx` wraps the entire app in `main.jsx`
+- If `localStorage.getItem("kontex_api_key")` is falsy → renders a full-screen key entry form
+- On submit → stores key, dismisses gate; no page reload needed
+- 401 from any API call → clears key, gate reappears (handled in `apiFetch`)
+
+**Mock data:**
+- Mock imports are allowed **only** inside `src/data/mock.js`
+- Hook files in `src/hooks/` must never import from `src/data/mock.js`
+- Once a hook is wired, its corresponding component must not fall back to mock data
+
+**Signals:**
+- There is no `/v1/signals` backend endpoint
+- Signals are computed **client-side** in `src/utils/signals.js` from timeline data
+- Logic: `tokenDelta > 5000` relative to window → `context_bloat`; same tool called 3+ times → `retry_storm`; `tokenTotal > 80000` → `context_limit_proximity`
+- `SignalsPage` and `TimelinePage` both derive signal entries using this utility
+
+**Docker / environment:**
+- `VITE_*` vars are baked in at Vite build time — **not** available at runtime
+- Must be passed as Docker build args: `--build-arg VITE_KONTEX_API_URL=https://...`
+- Runtime env vars in `docker-compose.yml` have no effect on the built static bundle
+
+**Integration sprint map:**
+
+| Sprint | Focus | Key deliverables |
+|---|---|---|
+| W1 | Foundation | `.env.example`, QueryClientProvider, `src/api/client.js`, `ApiKeyGate` |
+| W2 | Sessions + Home | `useSessions`, `useSession`, `useUsage`; wire `SessionList`, `StatCards`, Sidebar |
+| W3 | Session Detail | `useTimeline`, `useSnapshot`; wire `SnapshotTimeline`, `ContextInspector` |
+| W4 | Rollback + Diff | `useRollback`, `useDiff`; wire `RollbackDrawer`, `DiffPage` |
+| W5 | Task Graph | `useGraph`; wire `TaskGraph`, `TaskGraphPage` |
+| W6 | Search + Keys | `useSearch`, `useKeys`, `useCreateKey`, `useDeleteKey`; wire `SearchPage`, `KeysManager` |
+| W7 | Signals + Timeline + Usage | `src/utils/signals.js`; wire `TimelinePage`, `SignalsPage`, `UsagePage` |
+| W8 | Error handling + Deploy | `InlineError`, `Dockerfile`, `nginx.conf`, `docker-compose.yml`, final verification |
+
+---
+
 ### Sprint 6 — Wiring + Polish
 
 **Prompt 6.1 — Zustand store**
