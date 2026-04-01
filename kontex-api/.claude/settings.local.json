@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx prisma:*)",
+      "Bash(ls node_modules/.bin/dotenv*)",
+      "Bash(node_modules/.bin/dotenv-cli --version)",
+      "Bash(pkill -f \"tsx watch src/index.ts\")",
+      "Bash(npm install:*)",
+      "Bash(docker ps:*)",
+      "Bash(pkill -f \"tsx\")",
+      "Bash(pkill -f \"node\")",
+      "Bash(curl -s http://localhost:3000/v1/sessions -H \"Authorization: Bearer test_key_dev\")",
+      "Bash(docker exec:*)",
+      "Bash(AUTH=\"Authorization: Bearer test_key_dev\")",
+      "Bash(curl -s -X POST http://localhost:3000/v1/sessions -H \"$AUTH\" -H \"Content-Type: application/json\" -d '{\"\"name\"\":\"\"Test session\"\"}')",
+      "Bash(curl -s -X POST http://localhost:3000/v1/sessions -H \"$AUTH\" -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(curl -s http://localhost:3000/v1/sessions -H \"$AUTH\")",
+      "Bash(curl -s http://localhost:3000/v1/sessions)",
+      "Bash(SESSION_ID=\"cmnekk9qx0001l3jwf4ik6ecy\")",
+      "Bash(curl -s http://localhost:3000/v1/sessions/$SESSION_ID -H \"$AUTH\")",
+      "Bash(curl -s -X PATCH http://localhost:3000/v1/sessions/$SESSION_ID -H \"$AUTH\" -H \"Content-Type: application/json\" -d '{\"\"name\"\":\"\"Updated session\"\"}')",
+      "Bash(curl -s http://localhost:3000/v1/sessions/nonexistent -H \"$AUTH\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -X DELETE http://localhost:3000/v1/sessions/$SESSION_ID -H \"$AUTH\")",
+      "Bash(npm test:*)"
+    ]
+  }
+}

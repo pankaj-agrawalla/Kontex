@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+  apiKeys   ApiKey[]
+  sessions  Session[]
+}
+
+model ApiKey {
+  id        String    @id @default(cuid())
+  key       String    @unique
+  label     String?
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  createdAt DateTime  @default(now())
+  lastUsed  DateTime?
+  active    Boolean   @default(true)
+}
+
+model Session {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  name        String
+  description String?
+  status      SessionStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  tasks       Task[]
+}
+
+enum SessionStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+model Task {
+  id           String     @id @default(cuid())
+  sessionId    String
+  session      Session    @relation(fields: [sessionId], references: [id])
+  parentTaskId String?
+  parentTask   Task?      @relation("TaskTree", fields: [parentTaskId], references: [id])
+  childTasks   Task[]     @relation("TaskTree")
+  name         String
+  status       TaskStatus @default(PENDING)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  snapshots    Snapshot[]
+}
+
+enum TaskStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  FAILED
+}
+
+model Snapshot {
+  id         String    @id @default(cuid())
+  taskId     String
+  task       Task      @relation(fields: [taskId], references: [id])
+  label      String
+  tokenTotal Int
+  model      String?
+  source     String    @default("proxy")
+  r2Key      String    @unique
+  enriched   Boolean   @default(false)
+  enrichedAt DateTime?
+  embedded   Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+}
