@@ -251,75 +251,71 @@ cd kontex-dashboard
 
 ---
 
-# Current Sprint — Sprint 1: Shell, Layout, Session List
+### Sprint 2 — Snapshot Timeline + Context Inspector
 
-**Goal:** Scaffolded React project, dark layout shell with sidebar and top bar, session list table rendering from mock data with status filters.
+**Prompt 2.1 — Session Detail layout**
+```
+Build src/components/detail/SessionDetail.jsx as a horizontal split-pane:
+- Left pane: 280px fixed width, holds SnapshotTimeline
+- Right pane: flex-1, holds ContextInspector
+- Divider: 1px solid #1E1E22, no drag handle needed for MVP
+- Top of the page: session name (large, DM Sans medium) + status badge + back arrow
 
-**Done criteria:**
-- [ ] `npm run dev` starts without errors at `http://localhost:5173`
-- [ ] Sidebar renders: collapsed 56px, expands to 200px on hover, three nav items
-- [ ] Top bar renders: breadcrumb left, token counter right
-- [ ] Home route renders session list from `mockSessionsResponse.data`
-- [ ] Status filter tabs work: All · Active · Paused · Completed
-- [ ] StatusBadge uses correct colors: teal (ACTIVE), amber (PAUSED), muted (COMPLETED)
-- [ ] Token counts and timestamps in IBM Plex Mono
-- [ ] Labels and nav in DM Sans
-- [ ] No shadows — borders only (`#1E1E22`)
-- [ ] No chat input, no textarea, no send button anywhere in the codebase
-- [ ] Routes exist for `/`, `/session/:id`, `/graph`, `/search`, `/settings`
+Build src/components/detail/SnapshotTimeline.jsx:
+- Data source: mockTimeline from src/data/mock.js
+  (real API shape from GET /v1/sessions/:id/snapshots/timeline)
+- Each item has: id, label, taskId, taskName, source, enriched, tokenTotal, tokenDelta, createdAt
+- Vertical timeline of checkpoint nodes
+- Each node: circle (8px, border teal) + label + taskName (2xs, subtle) + timestamp (mono, 2xs, subtle)
+- Active/selected node: circle filled teal, label text-white
+- Connecting line: 1px solid #1E1E22 between nodes
+- Clicking a node selects it and updates the right pane
+- Below each node show token delta (e.g. "+3,600 tokens") in amber mono text
+  (first node shows tokenTotal, subsequent nodes show tokenDelta)
+- Source badge: small pill — "proxy" in teal, "log_watcher" in amber, "mcp" in muted
+- Enrichment indicator: small dot next to label when enriched === true
+- At the bottom: "Rollback to checkpoint" button (amber, outline style)
+  - Only enabled when a non-latest snapshot is selected
+  - Clicking opens the RollbackDrawer
+```
+
+**Prompt 2.2 — Context Inspector**
+```
+Build src/components/detail/ContextInspector.jsx that displays the selected snapshot's bundle
+contents. Use mockSnapshot.bundle from src/data/mock.js for dev.
+
+Real API: GET /v1/snapshots/:id returns { id, taskId, label, tokenTotal, model, source,
+enriched, enrichedAt, embedded, r2Key, createdAt, bundle }
+The bundle field is the ContextBundle: { files, toolCalls, messages, reasoning, logEvents }
+
+Four sections, each collapsible with a chevron:
+
+1. Files (bundle.files)
+   - List of file paths with a file icon (lucide)
+   - Each row: path in mono font + tokenCount badge on the right (IBM Plex Mono, subtle)
+   - If no files: show empty state "No files captured"
+
+2. Messages (bundle.messages)
+   - Each message: role badge (user=teal, assistant=subtle) + content (truncated to 2 lines)
+   - Timestamp if present, in mono subtle
+   - If bundle.reasoning is present, show it as a collapsible "Reasoning" sub-section
+     with amber left border
+
+3. Tool Calls (bundle.toolCalls)
+   - Each call: tool name in mono + input (truncated to 60 chars) + status dot + timestamp
+   - status: "success" = green dot, "error" = red dot
+   - If no tool calls: empty state "No tool calls recorded"
+
+4. Log Events (bundle.logEvents — enriched by log watcher)
+   - Only shown when bundle.logEvents.length > 0 OR snapshot.enriched === true
+   - Each event: type badge + timestamp + data (collapsed JSON)
+   - Section header shows "Enriched" indicator dot when enriched === true
+
+Section header: uppercase, letter-spacing, 0.65rem, text-subtle
+Top of inspector: snapshot metadata bar — label, model, source badge, tokenTotal in mono,
+createdAt timestamp. If enriched: small "enriched" pill in amber.
+
+No chat messages display. No AI response list. This is state inspection.
+```
 
 ---
-
-## Prompt 1.1 — App shell + routing
-
-```
-Set up react-router-dom v6 in src/App.jsx with five routes:
-  /               → pages/Home.jsx
-  /session/:id    → pages/SessionDetailPage.jsx
-  /graph          → pages/TaskGraphPage.jsx
-  /search         → pages/SearchPage.jsx
-  /settings       → pages/SettingsPage.jsx
-
-Create a persistent layout wrapper with:
-- A left sidebar (src/components/layout/Sidebar.jsx) 
-  - 56px wide collapsed, 200px expanded on hover
-  - Nav items: Sessions (home icon), Search (search icon), Settings (settings icon)
-  - Bottom: a small Kontex wordmark
-  - Use lucide-react for icons
-  - Dark bg #111113, border-right 1px solid #1E1E22
-  - CSS transition on width for smooth hover expand
-- A top bar (src/components/layout/TopBar.jsx)
-  - Shows current page breadcrumb on left
-  - Shows a live token counter (mock: "1,240,800 tokens" in IBM Plex Mono) on right
-  - Height 40px, border-bottom 1px solid #1E1E22
-
-No chat input. No message box. No textarea. This is a control panel, not a chat UI.
-```
-
----
-
-## Prompt 1.2 — Session List
-
-```
-Build src/components/sessions/SessionList.jsx that:
-- Renders a full-width table (no card grid) of sessions from src/data/mock.js
-  (use mockSessionsResponse.data — the real API wraps the array in { data, nextCursor })
-- Columns: Status · Name · Description · Last Updated · Actions
-- StatusBadge component: dot + label, status values are UPPERCASE strings:
-    ACTIVE    → teal (#00E5CC)
-    PAUSED    → amber (#F5A623)
-    COMPLETED → muted (#6B6B7A)
-- Last Updated: relative time using date-fns (e.g. "8 min ago") from updatedAt field
-- Actions column: "Open →" link in teal for ACTIVE/PAUSED, "View" for COMPLETED
-- Row hover: background #111113, border-left 2px solid #00E5CC
-- Table header: uppercase, letter-spacing, text-subtle (#6B6B7A), font-size 0.65rem
-- No shadows. No rounded cards. Borders only.
-- Filter bar above: All · Active · Paused · Completed tabs
-  (filter compares status === "ACTIVE" / "PAUSED" / "COMPLETED" — uppercase)
-
-Mock data to use is mockSessionsResponse from src/data/mock.js.
-The mock data must be created first — it must match the real API shape:
-  { data: [{ id, name, description, status, createdAt, updatedAt }], nextCursor }
-Status values in mock must be uppercase: "ACTIVE", "PAUSED", "COMPLETED".
-Token field is tokenTotal — there is no tokenCost field.
-```
