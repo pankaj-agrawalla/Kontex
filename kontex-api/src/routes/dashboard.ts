@@ -1,8 +1,14 @@
 import { Hono } from "hono"
+import { VoyageAIClient } from "voyageai"
+import { QdrantClient } from "@qdrant/js-client-rest"
 import { db } from "../db"
+import { config } from "../config"
 import { readBundle } from "../services/bundle.service"
 import { diffBundles } from "../services/diff.service"
 import type { Variables } from "../types/api"
+
+const voyage = new VoyageAIClient({ apiKey: config.VOYAGE_API_KEY })
+const qdrant = new QdrantClient({ url: config.QDRANT_URL, apiKey: config.QDRANT_API_KEY })
 
 const app = new Hono<{ Variables: Variables }>()
 
@@ -179,6 +185,63 @@ app.get("/usage", async (c) => {
     snapshots_this_month: monthlySnapshotAgg._count.id,
     tokens_this_month: monthlySnapshotAgg._sum.tokenTotal ?? 0,
   })
+})
+
+// GET /v1/search
+app.get("/search", async (c) => {
+  if (!config.QDRANT_URL || !config.VOYAGE_API_KEY) {
+    return c.json(
+      { error: "search_unavailable", message: "Semantic search not configured" },
+      503
+    )
+  }
+
+  const userId = c.get("userId")
+  const q = c.req.query("q")
+  const sessionId = c.req.query("session_id")
+  const limitParam = Number(c.req.query("limit") ?? "10")
+  const limit = Math.min(Math.max(1, limitParam), 50)
+
+  if (!q || q.trim().length === 0) {
+    return c.json(
+      { error: "validation_error", message: "Query param 'q' is required" },
+      400
+    )
+  }
+
+  const result = await voyage.embed({ input: [q], model: "voyage-code-3" })
+  const queryVector = result.data?.[0]?.embedding
+  if (!queryVector) {
+    return c.json({ error: "upstream_error", message: "Failed to embed query" }, 502)
+  }
+
+  type QdrantCondition = { key: string; match: { value: string } }
+  const must: QdrantCondition[] = [{ key: "userId", match: { value: userId } }]
+  if (sessionId) {
+    must.push({ key: "sessionId", match: { value: sessionId } })
+  }
+
+  const results = await qdrant.search(config.QDRANT_COLLECTION, {
+    vector: queryVector,
+    limit,
+    filter: { must },
+    with_payload: true,
+  })
+
+  return c.json(
+    results.map((hit) => {
+      const p = hit.payload ?? {}
+      return {
+        snapshotId: p["snapshotId"],
+        taskId: p["taskId"],
+        sessionId: p["sessionId"],
+        label: p["label"],
+        source: p["source"],
+        score: hit.score,
+        createdAt: p["createdAt"],
+      }
+    })
+  )
 })
 
 export default app

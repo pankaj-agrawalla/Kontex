@@ -349,111 +349,347 @@ cd kontex-api
 
 # Verify done criteria before moving to next sprint
 ```
-# SPRINT 7 — Dashboard API
+# SPRINT 8 — Semantic Search + Rate Limiting + Deploy
 
-**Goal:** All REST endpoints the Kontex Dashboard frontend needs. Task graph, context diff, snapshot timeline, usage stats.
+**Goal:** Snapshots indexed and semantically searchable. Rate limited. Error-standardized. API key management. Deployed to Railway.
 
 **Done criteria:**
-- [ ] `/graph` returns valid ReactFlow-ready JSON
-- [ ] `/diff` returns typed diff with correct token delta
-- [ ] `/timeline` returns ordered snapshots with source + enriched fields and token deltas
-- [ ] `/usage` returns correct aggregated stats per user
-- [ ] Dashboard frontend connects and renders from these endpoints
+- [ ] Embed worker processes jobs from Redis
+- [ ] `GET /v1/search?q=auth+bug` returns semantically relevant results
+- [ ] Search results scoped to authenticated user
+- [ ] Rate limiting returns 429 with retry_after
+- [ ] API key CRUD works
+- [ ] All errors follow standardized shape
+- [ ] `railway up` deploys both services
+- [ ] `GET /health` returns 200 in production
+- [ ] All four docs complete
 
 ---
 
-## Prompt 7.1 — Diff service
+## Prompt 8.1 — Embed service + worker
 
 ```
-Create src/services/diff.service.ts:
+Create src/services/embed.service.ts:
 
-import { ContextBundle, ContextFile, ToolCall, Message } from "../types/bundle"
+import { VoyageAIClient } from "voyageai"
+import { QdrantClient } from "@qdrant/js-client-rest"
+import { config } from "../config"
+import { readBundle } from "./bundle.service"
+import { db } from "../db"
 
-export interface DiffResult {
-  added: {
-    files: ContextFile[]
-    toolCalls: ToolCall[]
-    messages: Message[]
-  }
-  removed: {
-    files: ContextFile[]
-    toolCalls: ToolCall[]
-    messages: Message[]
-  }
-  tokenDelta: number
+const voyage = new VoyageAIClient({ apiKey: config.VOYAGE_API_KEY })
+const qdrant = new QdrantClient({ url: config.QDRANT_URL, apiKey: config.QDRANT_API_KEY })
+
+export async function embedSnapshot(snapshotId: string): Promise<void> {
+  // 1. Read snapshot + task + session from DB
+  const snapshot = await db.snapshot.findUnique({
+    where: { id: snapshotId },
+    include: { task: { include: { session: true } } }
+  })
+  if (!snapshot) throw new Error("Snapshot not found")
+
+  // 2. Read bundle from R2
+  const bundle = await readBundle(snapshot.r2Key)
+
+  // 3. Build embedding input string:
+  //    "{label} | {taskName} | {sessionName}
+  //     Files: {filePaths joined by comma}
+  //     Tools: {toolNames joined by comma}
+  //     Reasoning: {first 500 chars of reasoning}"
+  const input = buildEmbedInput(snapshot, bundle)
+
+  // 4. Call Voyage AI
+  const result = await voyage.embed({ input: [input], model: "voyage-code-3" })
+  const vector = result.data[0].embedding
+
+  // 5. Upsert to Qdrant
+  await qdrant.upsert(config.QDRANT_COLLECTION, {
+    wait: true,
+    points: [{
+      id: snapshotId,
+      vector,
+      payload: {
+        snapshotId, taskId: snapshot.taskId, sessionId: snapshot.task.sessionId,
+        userId: snapshot.task.session.userId,
+        label: snapshot.label, source: snapshot.source, createdAt: snapshot.createdAt.toISOString()
+      }
+    }]
+  })
+
+  // 6. Mark embedded
+  await db.snapshot.update({ where: { id: snapshotId }, data: { embedded: true } })
 }
 
-export function diffBundles(bundleA: ContextBundle, bundleB: ContextBundle): DiffResult {
-  // Files: compare by path
-  //   added = files in B where path not in A
-  //   removed = files in A where path not in B
-  const filePathsA = new Set(bundleA.files.map(f => f.path))
-  const filePathsB = new Set(bundleB.files.map(f => f.path))
+Update snapshot.service.ts createSnapshot to push to Redis after creation:
+  import { redis } from "../redis"
+  // After db.snapshot.create:
+  redis.rpush("kontex:embed_jobs", JSON.stringify({ snapshotId: snapshot.id }))
+    .catch(err => console.error("Failed to queue embed job:", err))
 
-  // Tool calls: compare by timestamp
-  //   Get latest timestamp in A. Calls in B after that timestamp = added.
-  const latestATimestamp = bundleA.toolCalls.reduce(...)
+Create src/workers/embed.worker.ts:
 
-  // Messages: compare by array index
-  //   messages in B beyond bundleA.messages.length = added
-  //   messages in A beyond bundleB.messages.length = removed
+  import { redis } from "../r2"  // use a separate redis instance for blocking
+  import { embedSnapshot } from "../services/embed.service"
 
-  // tokenDelta: bundleB.tokenTotal - bundleA.tokenTotal
+  const MAX_RETRIES = 3
 
-  return { added, removed, tokenDelta }
-}
-```
-
----
-
-## Prompt 7.2 — Dashboard routes
-
-```
-Create src/routes/dashboard.ts. Mount in index.ts under /v1.
-
-GET /v1/sessions/:id/graph
-  Validate session ownership → 404
-  Fetch all tasks for session with snapshot count
-  Build ReactFlow-compatible JSON:
-    nodes: tasks mapped to:
-      { id: task.id, data: { label: task.name, status: task.status, tokenTotal: sum of snapshot tokenTotals, snapshotCount }, position: { x: 300, y: index * 120 } }
-    edges: tasks with parentTaskId mapped to:
-      { id: "e_{parentId}_{childId}", source: parentTaskId, target: task.id, animated: task.status === "ACTIVE" || task.status === "PENDING" }
-  Return 200: { nodes, edges }
-
-GET /v1/sessions/:id/diff?from={snapshot_id}&to={snapshot_id}
-  Validate session ownership
-  Validate both snapshot ids belong to this session → 400 if not
-  Read both bundles from R2
-  Call diff.service.diffBundles
-  Return 200: { added: { files, toolCalls, messages }, removed: { files, toolCalls, messages }, token_delta }
-
-GET /v1/sessions/:id/snapshots/timeline
-  Validate session ownership
-  Fetch all snapshots across all tasks in session
-  Order: createdAt asc
-  Join with task name
-  Compute tokenDelta per snapshot (diff from previous snapshot's tokenTotal, 0 for first)
-  Return 200: [{
-    id, label, taskId, taskName, source, enriched,
-    tokenTotal, tokenDelta, createdAt
-  }]
-
-GET /v1/usage
-  For c.get("userId"):
-  Return 200: {
-    total_sessions: count of sessions,
-    active_sessions: count where status ACTIVE,
-    total_snapshots: count of all snapshots,
-    total_tokens_stored: sum of all snapshot tokenTotals,
-    snapshots_this_month: count where createdAt >= start of current month,
-    tokens_this_month: sum where createdAt >= start of current month
+  async function processJob(raw: string, attempt = 1): Promise<void> {
+    const { snapshotId } = JSON.parse(raw)
+    try {
+      await embedSnapshot(snapshotId)
+      console.log(`[embed-worker] Embedded ${snapshotId}`)
+    } catch (err) {
+      if (attempt < MAX_RETRIES) {
+        const delay = Math.pow(2, attempt) * 1000
+        await sleep(delay)
+        await processJob(raw, attempt + 1)
+      } else {
+        console.error(`[embed-worker] Failed after ${MAX_RETRIES} attempts:`, snapshotId, err)
+      }
+    }
   }
-  All counts scoped to the authenticated user via session.userId
 
-Verify each endpoint returns correct data.
+  async function run(): Promise<void> {
+    console.log("[embed-worker] Started")
+    while (true) {
+      const result = await redis.blpop("kontex:embed_jobs", 0)
+      if (result) {
+        const [, raw] = result
+        processJob(raw).catch(console.error)
+      }
+    }
+  }
+
+  run()
 ```
 
 ---
 
+## Prompt 8.2 — Search endpoint
+
+```
+Add to src/routes/dashboard.ts:
+
+GET /v1/search
+  Query: q (string, required, min 1), session_id (string, optional), limit (number, default 10, max 50)
+  Validate: q present → 400 if missing
+
+  1. Embed the query:
+     const result = await voyage.embed({ input: [q], model: "voyage-code-3" })
+     const queryVector = result.data[0].embedding
+
+  2. Build Qdrant filter:
+     Must match userId = c.get("userId")
+     If session_id provided: also match sessionId = session_id
+
+  3. Search Qdrant:
+     const results = await qdrant.search(config.QDRANT_COLLECTION, {
+       vector: queryVector,
+       limit,
+       filter: { must: [{ key: "userId", match: { value: userId } }, ...] },
+       with_payload: true
+     })
+
+  4. Return 200:
+     [{
+       snapshotId, taskId, sessionId,
+       label, source, score,
+       createdAt
+     }]
+
+Handle missing QDRANT_URL or VOYAGE_API_KEY gracefully:
+  If either is empty string: return 503 { error: "search_unavailable", message: "Semantic search not configured" }
+```
+
 ---
+
+## Prompt 8.3 — Rate limiting + API key management
+
+```
+Create src/middleware/ratelimit.ts:
+
+Using Redis for rate limit counters.
+
+export async function rateLimit(c: Context, next: Next): Promise<Response | void> {
+  const apiKeyId = c.get("apiKeyId")
+  if (!apiKeyId) return next()  // unauthed requests already blocked by auth middleware
+
+  const isWritePath = c.req.method === "POST" &&
+    (c.req.path.includes("/snapshots") || c.req.path.includes("/proxy"))
+
+  const hourlyKey = `rl:${apiKeyId}:hourly:${getHourBucket()}`
+  const writeKey = `rl:${apiKeyId}:writes:${getHourBucket()}`
+
+  const [hourly, writes] = await redis.mget(hourlyKey, writeKey)
+
+  if (parseInt(hourly ?? "0") >= 1000) {
+    return c.json({ error: "rate_limit_exceeded", message: "Hourly request limit reached", details: { retry_after: secondsUntilNextHour() } }, 429)
+  }
+  if (isWritePath && parseInt(writes ?? "0") >= 100) {
+    return c.json({ error: "rate_limit_exceeded", message: "Hourly snapshot write limit reached", details: { retry_after: secondsUntilNextHour() } }, 429)
+  }
+
+  await redis.incr(hourlyKey)
+  await redis.expire(hourlyKey, 3600)
+  if (isWritePath) {
+    await redis.incr(writeKey)
+    await redis.expire(writeKey, 3600)
+  }
+
+  return next()
+}
+
+function getHourBucket(): string { return new Date().toISOString().slice(0, 13) }
+function secondsUntilNextHour(): number { ... }
+
+Apply in index.ts: app.use("/v1/*", rateLimit) after auth middleware.
+
+Create src/routes/keys.ts:
+
+POST /v1/keys
+  Zod body: { label?: string }
+  Generate API key: "kontex_" + nanoid(32)
+  Create: db.apiKey.create({ data: { key, label, userId } })
+  Return 201: { id, key, label, createdAt }
+  NOTE: key is returned only here. Never returned again in any other endpoint.
+
+GET /v1/keys
+  Return all active keys for userId: [{ id, label, lastUsed, active, createdAt }]
+  NEVER include the key value in this response.
+
+DELETE /v1/keys/:id
+  Validate ownership (apiKey.userId === c.get("userId")) → 404 if not
+  Set active: false (never hard delete)
+  Return 204
+
+Mount in index.ts: app.route("/v1/keys", keysRouter)
+```
+
+---
+
+## Prompt 8.4 — Railway deploy config
+
+```
+Create railway.toml:
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "npm run start"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[[services]]
+name = "kontex-api"
+
+[[services]]
+name = "kontex-embed-worker"
+startCommand = "node dist/workers/embed.worker.js"
+
+Create docs/data-model.md covering:
+  - Sessions, Tasks, Snapshots explained in plain language
+  - ContextBundle structure and what each field means
+  - The enrichment window concept
+  - The immutability invariant and why rollback creates, not deletes
+  - Source field values and what they mean
+
+Then run production build and verify:
+  npm run build
+  - Must complete without TypeScript errors
+
+Deploy:
+  railway login
+  railway init
+  railway up
+
+  railway run npm run migrate   ← run migrations in production
+
+Verify:
+  curl https://your-app.railway.app/health → { status: "ok" }
+  railway logs -f → no errors
+
+Final checklist — verify every Sprint 8 done criteria item.
+```
+
+---
+
+## Prompt 8.5 — Final verification pass
+
+```
+Run a full verification pass across all 8 sprints.
+
+1. All Sprint done criteria checked ✓
+2. npm run build completes without TypeScript errors
+3. npm test passes all tests
+4. GET /health → 200
+5. POST /proxy/v1/messages → returns Anthropic response
+6. Snapshot created after proxy call
+7. POST /v1/snapshots/:id/enrich → 200 within window
+8. GET /v1/sessions/:id/graph → valid ReactFlow JSON
+9. GET /v1/search?q=test → 200 (or 503 if Qdrant not configured)
+10. POST /v1/keys → returns key (only time)
+11. Rate limit: 1001st request → 429
+12. All error responses follow { error, message } shape
+13. No stack traces in any API response
+14. No API key values in any log output
+15. Rollback creates new snapshot, original unchanged
+16. docs/quickstart.md, log-watcher.md, mcp-advanced.md, data-model.md all present
+
+Fix every failure found. The backend is done when this list passes completely.
+```
+
+---
+
+## 13. Full API Reference
+
+```
+# Keys
+POST   /v1/keys
+GET    /v1/keys
+DELETE /v1/keys/:id
+
+# Sessions
+POST   /v1/sessions
+GET    /v1/sessions
+GET    /v1/sessions/:id
+PATCH  /v1/sessions/:id
+DELETE /v1/sessions/:id
+
+# Tasks
+POST   /v1/sessions/:id/tasks
+GET    /v1/sessions/:id/tasks
+GET    /v1/tasks/:id
+PATCH  /v1/tasks/:id
+
+# Snapshots
+POST   /v1/tasks/:id/snapshots
+GET    /v1/sessions/:id/snapshots
+GET    /v1/snapshots/:id
+GET    /v1/snapshots/:id/bundle
+POST   /v1/snapshots/:id/rollback
+POST   /v1/snapshots/:id/enrich
+
+# Dashboard
+GET    /v1/sessions/:id/graph
+GET    /v1/sessions/:id/diff?from=&to=
+GET    /v1/sessions/:id/snapshots/timeline
+GET    /v1/usage
+GET    /v1/search?q=
+
+# Proxy (PRIMARY write path)
+POST   /proxy/v1/messages
+
+# MCP (ADVANCED write path)
+POST   /mcp
+
+# System
+GET    /health
+```
+
+---
+
+*Kontex Backend Build Guide · v2.0 · Proxy-first · Log watcher secondary · MCP advanced*
+*8 sprints · 35 Claude Code prompts*

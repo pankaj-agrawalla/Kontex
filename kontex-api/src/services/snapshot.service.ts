@@ -3,6 +3,7 @@ import { get_encoding } from "tiktoken";
 import { Snapshot } from "@prisma/client";
 import { db } from "../db";
 import { config } from "../config";
+import { redis } from "../redis";
 import { writeBundle, readBundle, mergeBundle } from "./bundle.service";
 import {
   ContextBundle,
@@ -73,6 +74,10 @@ export async function createSnapshot(params: {
       r2Key,
     },
   });
+
+  redis
+    .rpush("kontex:embed_jobs", JSON.stringify({ snapshotId: snapshot.id }))
+    .catch((err: Error) => console.error("Failed to queue embed job:", err))
 
   return snapshot;
 }

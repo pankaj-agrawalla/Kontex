@@ -13,6 +13,8 @@ import proxy from "./routes/proxy";
 import enrich from "./routes/enrich";
 import mcpRoute from "./routes/mcp";
 import dashboard from "./routes/dashboard";
+import keys from "./routes/keys";
+import { rateLimit } from "./middleware/ratelimit";
 import type { Variables } from "./types/api";
 
 const app = new Hono<{ Variables: Variables }>();
@@ -28,10 +30,12 @@ app.route("/v1", enrich);
 app.route("/mcp", mcpRoute);
 
 app.use("/v1/*", auth);
+app.use("/v1/*", rateLimit);
 app.route("/v1/sessions", sessions);
 app.route("/v1/tasks", tasks);
 app.route("/v1", snapshots);
 app.route("/v1", dashboard);
+app.route("/v1/keys", keys);
 
 const port = Number(config.PORT);
 
