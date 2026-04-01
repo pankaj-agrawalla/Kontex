@@ -251,40 +251,78 @@ cd kontex-dashboard
 
 ---
 
-### Sprint 3 — Rollback Drawer
+### Sprint 5 — Search + Keys + Usage
 
-**Prompt 3.1 — Rollback UI**
+**Prompt 5.1 — Search page**
 ```
-Build src/components/rollback/RollbackDrawer.jsx as a right-side slide-in drawer (not a modal):
-- Width: 380px, slides in from right over the content
-- Backdrop: semi-transparent #0A0A0B at 80% opacity
-- Header: "Restore Checkpoint" in DM Sans medium + close X button
+Build src/pages/SearchPage.jsx and src/components/search/SearchResults.jsx.
 
-Body shows diff data from mockDiff in src/data/mock.js.
-Real API: GET /v1/sessions/:id/diff?from={snapshotId}&to={targetSnapshotId}
-Response: { added: string[], removed: string[], token_delta: number }
+SearchPage layout:
+- Single search input at the top (this is the ONE place in the app with an input — 
+  it is a query input, not a chat input)
+- Input: DM Sans, dark bg #111113, border #1E1E22, focus border teal
+- "Search" button inline (teal, disabled when empty)
+- Optional filter: session selector dropdown (sessions from mockSessionsResponse.data)
+- Results below, powered by mockSearchResults from src/data/mock.js
 
-Display:
-- "Restoring to: [snapshot label]"
-- "Files added in this restore:" — list from diff.added, each with green left border
-- "Files removed from current context:" — list from diff.removed, each with red left border
-- Total token delta: diff.token_delta formatted as "+4,500" or "−3,200" in large mono amber text
-  (positive = tokens added back, negative = tokens removed)
+SearchResults component:
+- List of result rows, each showing:
+  - label (DM Sans medium)
+  - source badge: "proxy" / "log_watcher" / "mcp"
+  - session + task IDs (mono subtle, truncated)
+  - Similarity score: shown as a bar (0–1 range, filled teal) + numeric value in mono
+  - createdAt: relative time
+  - Click navigates to /session/:sessionId and selects the snapshot
 
-Footer:
-- "Cancel" — ghost/outline, closes drawer
-- "Confirm Rollback" — solid amber background, dark text, bold
+Empty state: "No results found — try different keywords"
+503 state: "Semantic search not configured — Qdrant or Voyage AI not set up"
 
-The Confirm Rollback action calls POST /v1/snapshots/:targetSnapshotId/rollback (no request body).
-Response: { rollback_snapshot_id, source_snapshot_id, label, captured_at, token_total, bundle }
-On success: close drawer + refresh timeline. The new snapshot appears at the end — do NOT remove
-any existing snapshots (immutability invariant: rollback creates, never deletes).
+Real API: GET /v1/search?q={query}&session_id={optional}&limit=10
+Returns: [{ snapshotId, taskId, sessionId, label, source, score, createdAt }]
+```
 
-Warning text below buttons (small, subtle):
-"This creates a new snapshot restoring the selected checkpoint state.
-Original history is preserved."
+**Prompt 5.2 — Settings page (API key management)**
+```
+Build src/pages/SettingsPage.jsx and src/components/keys/KeysManager.jsx.
 
-No undo. No chat. No input fields.
+SettingsPage has one section: "API Keys"
+KeysManager component:
+
+Create key section:
+- "Label" input (optional, DM Sans, dark input style)
+- "Generate Key" button (teal)
+- On success (POST /v1/keys): show a one-time display panel with the full key value
+  ("kontex_xxxx...") in a mono code block with a copy-to-clipboard button
+  Warning text: "Copy this key now. It will not be shown again."
+  Dismiss button closes the panel. Key value is never retrieved again.
+
+Keys list (from mockKeys / GET /v1/keys):
+- Table: Label · Last Used · Created · Actions
+- key value is NEVER shown in the list (API never returns it after creation)
+- Actions: "Revoke" button (amber, outline) → DELETE /v1/keys/:id → soft-deletes (active: false)
+  Confirm before revoking: inline confirmation "Revoke this key? Yes / Cancel"
+- lastUsed: relative time (date-fns) or "Never" if null
+- Empty state: "No API keys — generate one above"
+
+No passwords. No OAuth. This is purely API key management.
+```
+
+**Prompt 5.3 — Usage stats**
+```
+Build src/components/usage/UsageStats.jsx that displays data from mockUsage in src/data/mock.js.
+Real API: GET /v1/usage
+
+Show as a stats bar at the top of Home.jsx (above the session list):
+Six stat cells in a horizontal row, border-right between each:
+  Total Sessions | Active Sessions | Total Snapshots | Tokens Stored | Snapshots This Month | Tokens This Month
+
+Each cell:
+  - Stat value: large, IBM Plex Mono, text-text
+  - Label: 2xs, uppercase, letter-spacing, text-subtle
+  - Tokens: format with commas (e.g. "1,240,800")
+
+Background: #111113, border-bottom 1px solid #1E1E22, padding 12px 24px
+No charts. No graphs. Numbers only — this is a cockpit, not an analytics dashboard.
 ```
 
 ---
