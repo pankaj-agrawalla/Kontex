@@ -349,230 +349,125 @@ cd kontex-api
 
 # Verify done criteria before moving to next sprint
 ```
-# SPRINT 3 — HTTP Proxy (Primary Write Path)
+# SPRINT 5 — Rollback
 
-**Goal:** Transparent Anthropic-compatible proxy. Developer changes one line and adds one header. Auto-snapshots on configurable triggers. The Anthropic response is always returned identically — snapshot is async and never adds latency. This is the default onboarding path.
+**Goal:** Full rollback API. Forward-only history. Rollback creates a new snapshot, never deletes. Returns a ContextBundle ready for re-injection into an agent session.
 
 **Done criteria:**
-- [ ] `POST /proxy/v1/messages` forwards request to Anthropic and returns identical response
-- [ ] Response overhead < 50ms (async snapshot)
-- [ ] Auto-snapshot fires at correct trigger — Snapshot record appears in DB
-- [ ] Snapshot failure does NOT affect the Anthropic response
-- [ ] Missing `X-Kontex-Session-Id` → proxy forwards, no snapshot, warning logged
-- [ ] Snapshot `source` is `"proxy"`
-- [ ] `files` and `logEvents` in bundle are `[]` on proxy creation
-- [ ] `docs/quickstart.md` complete
-- [ ] Test script works end-to-end with real Anthropic API key
+- [ ] `POST /v1/snapshots/:id/rollback` returns full ContextBundle
+- [ ] A new Snapshot record created, original untouched
+- [ ] Rollback snapshot label: `"Rollback to: {original label}"`
+- [ ] Rollback snapshot `source` inherits from original
+- [ ] Cross-user rollback → 403
+- [ ] `rollback_snapshot_id` and `source_snapshot_id` both in response
 
 ---
 
-## Prompt 3.1 — Proxy service
+## Prompt 5.1 — Rollback service + route
 
 ```
-Create src/services/proxy.service.ts:
+Add to src/services/snapshot.service.ts:
 
-import fetch from "node-fetch" (or native fetch in Node 20+)
-import { config } from "../config"
-import { ContextBundle, ToolCall, Message } from "../types/bundle"
-
-Interface for proxy options:
-export interface ProxyOptions {
-  sessionId: string
+export async function rollbackToSnapshot(params: {
+  snapshotId: string
   userId: string
-  trigger: "every_n_turns" | "on_tool_end" | "token_threshold"
-  triggerN: number
-}
+}): Promise<{
+  rollbackSnapshotId: string
+  sourceSnapshotId: string
+  label: string
+  capturedAt: string
+  tokenTotal: number
+  bundle: ContextBundle
+}> {
+  // 1. Fetch source snapshot + validate ownership
+  const { snapshot, bundle } = await getSnapshot(params.snapshotId, params.userId)
 
-export function extractBundleFromProxy(
-  requestBody: unknown,
-  responseBody: unknown
-): Omit<ContextBundle, "snapshotId" | "taskId" | "sessionId" | "capturedAt"> {
-  // Parse requestBody as Anthropic /v1/messages request
-  // Parse responseBody as Anthropic /v1/messages response
-  //
-  // Extract:
-  //   messages: requestBody.messages mapped to Message[]
-  //   model: requestBody.model
-  //   toolCalls: from response content blocks where type === "tool_use"
-  //              map to ToolCall[] with status "success", timestamp now
-  //   reasoning: from response content blocks where type === "thinking"
-  //              join all thinking.thinking strings
-  //   tokenTotal: response.usage.input_tokens + response.usage.output_tokens
-  //   source: "proxy"
-  //   enriched: false
-  //   files: []
-  //   logEvents: []
-  //
-  // Return the partial bundle
-}
+  // 2. Create new snapshot on the same task
+  //    label: "Rollback to: {original label}"
+  //    bundle: copy of original bundle, new snapshotId, capturedAt = now
+  const newSnapshotId = generateId()
+  const newBundle: ContextBundle = {
+    ...bundle,
+    snapshotId: newSnapshotId,
+    capturedAt: new Date().toISOString(),
+    source: snapshot.source as SnapshotSource,
+    enriched: false,
+    logEvents: [],
+  }
 
-export function shouldSnapshot(
-  requestBody: unknown,
-  responseBody: unknown,
-  options: ProxyOptions
-): boolean {
-  // every_n_turns: count assistant messages in requestBody.messages
-  //   snapshot if count % options.triggerN === 0
-  // on_tool_end: true if response contains any tool_use content blocks
-  // token_threshold: true if tokenTotal >= options.triggerN
-  // return false if sessionId is missing
-}
+  const r2Key = await writeBundle(newSnapshotId, newBundle)
 
-export async function forwardToAnthropic(
-  requestBody: unknown,
-  anthropicApiKey: string
-): Promise<{ responseBody: unknown; status: number; headers: Record<string, string> }> {
-  const res = await fetch(`${config.ANTHROPIC_API_URL}/v1/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${anthropicApiKey}`,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(requestBody),
+  const newSnapshot = await db.snapshot.create({
+    data: {
+      id: newSnapshotId,
+      taskId: snapshot.taskId,
+      label: `Rollback to: ${snapshot.label}`,
+      tokenTotal: snapshot.tokenTotal,
+      model: snapshot.model,
+      source: snapshot.source,
+      r2Key,
+    }
   })
-  const responseBody = await res.json()
-  const headers: Record<string, string> = {}
-  res.headers.forEach((val, key) => { headers[key] = val })
-  return { responseBody, status: res.status, headers }
+
+  return {
+    rollbackSnapshotId: newSnapshot.id,
+    sourceSnapshotId: params.snapshotId,
+    label: newSnapshot.label,
+    capturedAt: newBundle.capturedAt,
+    tokenTotal: newSnapshot.tokenTotal,
+    bundle: newBundle,
+  }
 }
+
+Add to src/routes/snapshots.ts:
+
+POST /v1/snapshots/:id/rollback
+  No request body needed
+  Call: snapshot.service.rollbackToSnapshot({ snapshotId: params.id, userId: c.get("userId") })
+  On "NOT_FOUND" → 404
+  On "R2_READ_FAILED" → 502
+  Return 200:
+    {
+      rollback_snapshot_id: string,
+      source_snapshot_id: string,
+      label: string,
+      captured_at: string,
+      token_total: number,
+      bundle: ContextBundle
+    }
 ```
 
 ---
 
-## Prompt 3.2 — Proxy route
+## Prompt 5.2 — Rollback verification
 
 ```
-Create src/routes/proxy.ts:
+Add to tests/snapshots.test.ts:
 
-POST /proxy/v1/messages
-
-Auth: read X-Kontex-Api-Key header (NOT the standard Authorization header — that's the Anthropic key)
-  Use same ApiKey lookup logic as auth middleware
-  If missing or invalid → still forward to Anthropic, but do not snapshot
-  Attach userId if found
-
-Parse headers:
-  anthropicApiKey = Authorization header value (strip "Bearer ")
-  sessionId = X-Kontex-Session-Id header (optional)
-  trigger = X-Kontex-Snapshot-Trigger header (default: "every_n_turns")
-  triggerN = parseInt(X-Kontex-Snapshot-N) (default: 5)
-
-Steps:
-  1. Parse request body as JSON
-  2. Forward to Anthropic via forwardToAnthropic(requestBody, anthropicApiKey)
-  3. Return the Anthropic response IMMEDIATELY — do not await snapshot
-
-  4. ASYNC (do not await, fire-and-forget):
-     If sessionId and userId are present:
-       a. Check shouldSnapshot(requestBody, responseBody, { sessionId, userId, trigger, triggerN })
-       b. If true:
-          - Find or create a default task for this session:
-            find task where sessionId = sessionId AND name = "proxy-auto" AND status = ACTIVE
-            if not found, create it
-          - Extract bundle from extractBundleFromProxy(requestBody, responseBody)
-          - Set bundle.taskId, bundle.sessionId, bundle.capturedAt
-          - Call snapshot.service.createSnapshot
-       c. Log any errors — do NOT throw, do NOT affect the response
-
-Rule: The Anthropic response MUST be returned before any snapshot logic completes.
-      Wrap the entire async block in try/catch. If it throws, just console.error and continue.
-
-Mount in index.ts:
-  app.route("/proxy", proxyRouter)
-  Note: /proxy/* routes do NOT use the standard auth middleware
-  They handle their own auth via X-Kontex-Api-Key header
-```
-
----
-
-## Prompt 3.3 — Proxy integration test
-
-```
-Create tests/proxy.test.ts:
-
-test("POST /proxy/v1/messages returns Anthropic response unchanged", async () => {
-  // Use process.env.ANTHROPIC_API_KEY for the real key
-  // Skip test if key not set: if (!process.env.ANTHROPIC_API_KEY) return
-  //
-  // Send a minimal message to /proxy/v1/messages:
-  //   Authorization: Bearer {anthropic key}
-  //   X-Kontex-Api-Key: test_key_dev
-  //   X-Kontex-Session-Id: {a real session id}
-  //   Body: { model: "claude-haiku-4-5-20251001", max_tokens: 10, messages: [{ role: "user", content: "Say hi" }] }
-  //
-  // Assert: response.status === 200
-  // Assert: response body has "content" array (valid Anthropic response shape)
-  // Assert: response arrived in < 10 seconds
+test("POST /v1/snapshots/:id/rollback creates new snapshot", async () => {
+  // Create a snapshot, then POST /v1/snapshots/:id/rollback
+  // Assert 200
+  // Assert rollback_snapshot_id !== source_snapshot_id
+  // Assert label starts with "Rollback to: "
+  // Assert bundle is returned with messages array
 })
 
-test("POST /proxy/v1/messages without session id still works", async () => {
-  // No X-Kontex-Session-Id header
-  // Assert: still returns 200 Anthropic response
-  // Assert: no snapshot created in DB
+test("POST /v1/snapshots/:id/rollback original snapshot unchanged", async () => {
+  // Create snapshot, rollback, GET original snapshot
+  // Assert original snapshot label is unchanged
+  // Assert original r2Key is unchanged
 })
 
-test("POST /proxy/v1/messages snapshot created after 5 turns", async () => {
-  // Build a messages array with 5 pairs (10 messages total)
-  // Send with X-Kontex-Snapshot-Trigger: every_n_turns and X-Kontex-Snapshot-N: 5
-  // Wait 500ms for async snapshot to complete
-  // Assert: snapshot exists in DB with source === "proxy"
+test("POST /v1/snapshots/:id/rollback wrong user → 404", async () => {
+  // Create snapshot as user A, rollback as user B
+  // Assert 404
 })
 
-Also create a standalone test script at tests/proxy-manual.ts:
-  A simple Node.js script developers can run to manually verify the proxy:
-  - Creates a session via /v1/sessions
-  - Points Anthropic SDK baseURL to http://localhost:3000/proxy
-  - Sends 3 messages in conversation
-  - Prints the snapshots created
-  Run: tsx tests/proxy-manual.ts
-```
-
----
-
-## Prompt 3.4 — Quickstart docs
-
-```
-Write docs/quickstart.md — the primary developer onboarding document.
-
-Structure:
-  # Kontex Quickstart
-
-  ## What you get
-  Brief: automatic agent context snapshots, time-travel, rollback. Zero code change beyond baseURL.
-
-  ## Step 1: Create an account and get your API key
-  curl example for POST /v1/keys
-
-  ## Step 2: Create a session
-  curl example for POST /v1/sessions
-  Show the response, highlight the id field — you'll need this as your session ID
-
-  ## Step 3: Point your agent at the Kontex proxy
-  Show before/after for three runtimes:
-    Node.js (Anthropic SDK):
-      Before: new Anthropic()
-      After:  new Anthropic({ baseURL: "https://proxy.usekontex.com", defaultHeaders: { "X-Kontex-Api-Key": "...", "X-Kontex-Session-Id": "..." } })
-    Python (Anthropic SDK):
-      Before: anthropic.Anthropic()
-      After:  anthropic.Anthropic(base_url="https://proxy.usekontex.com", default_headers={...})
-    curl:
-      Before: curl https://api.anthropic.com/v1/messages
-      After:  curl https://proxy.usekontex.com/proxy/v1/messages -H "X-Kontex-Api-Key: ..." -H "X-Kontex-Session-Id: ..."
-
-  ## Step 4: Run your agent
-  Snapshots are created automatically. Default: every 5 assistant turns.
-
-  ## Step 5: View snapshots in the dashboard
-  Link to dashboard. Brief description of what they'll see.
-
-  ## Configuring snapshot triggers
-  Table showing X-Kontex-Snapshot-Trigger options with examples.
-
-  ## Next: Enriching snapshots with the log watcher
-  Brief teaser + link to docs/log-watcher.md
+Run: npm test
+All tests must pass before Sprint 6.
 ```
 
 ---
 
 ---
+
