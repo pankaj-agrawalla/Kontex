@@ -1,5 +1,6 @@
 import { formatDistanceToNow } from "date-fns";
-import { mockTimeline } from "../../data/mock";
+import { useSessionsStore } from "../../store/sessions";
+import { useUiStore } from "../../store/ui";
 
 const SOURCE_STYLES = {
   proxy:       { bg: "bg-teal/10",   text: "text-teal",   label: "proxy"       },
@@ -22,16 +23,22 @@ function formatDelta(index, item) {
   return `${sign}${val.toLocaleString()} tokens`;
 }
 
-export default function SnapshotTimeline({ selectedId, onSelect, onRollback }) {
-  const snapshots = mockTimeline;
-  const lastId = snapshots[snapshots.length - 1]?.id;
-  const canRollback = selectedId && selectedId !== lastId;
+export default function SnapshotTimeline() {
+  const activeSessionId  = useSessionsStore((s) => s.activeSessionId);
+  const activeSnapshotId = useSessionsStore((s) => s.activeSnapshotId);
+  const setActiveSnapshot = useSessionsStore((s) => s.setActiveSnapshot);
+  const timelineSnapshots = useSessionsStore((s) => s.timelineSnapshots);
+  const openRollback      = useUiStore((s) => s.openRollback);
+
+  const snapshots = timelineSnapshots[activeSessionId ?? "sess_01"] ?? [];
+  const lastId    = snapshots[snapshots.length - 1]?.id;
+  const canRollback = activeSnapshotId && activeSnapshotId !== lastId;
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto px-4 py-4">
         {snapshots.map((snap, index) => {
-          const isSelected = snap.id === selectedId;
+          const isSelected = snap.id === activeSnapshotId;
           const isLast = index === snapshots.length - 1;
 
           return (
@@ -43,7 +50,7 @@ export default function SnapshotTimeline({ selectedId, onSelect, onRollback }) {
 
               {/* Circle */}
               <button
-                onClick={() => onSelect(snap.id)}
+                onClick={() => setActiveSnapshot(snap.id)}
                 className="relative z-10 mt-1 shrink-0 focus:outline-none"
                 aria-label={`Select snapshot: ${snap.label}`}
               >
@@ -60,7 +67,7 @@ export default function SnapshotTimeline({ selectedId, onSelect, onRollback }) {
               {/* Content */}
               <div
                 className="flex-1 pb-5 cursor-pointer"
-                onClick={() => onSelect(snap.id)}
+                onClick={() => setActiveSnapshot(snap.id)}
               >
                 {/* Label + enriched dot */}
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -103,7 +110,7 @@ export default function SnapshotTimeline({ selectedId, onSelect, onRollback }) {
       {/* Rollback button */}
       <div className="px-4 py-3 border-t border-border">
         <button
-          onClick={() => canRollback && onRollback(selectedId)}
+          onClick={() => canRollback && openRollback()}
           disabled={!canRollback}
           className={[
             "w-full py-1.5 font-sans text-xs border rounded transition-colors duration-150",

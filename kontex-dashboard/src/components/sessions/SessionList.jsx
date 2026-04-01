@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
+import { Layers } from "lucide-react";
 import { mockSessionsResponse } from "../../data/mock";
 import StatusBadge from "./StatusBadge";
+import EmptyState from "../shared/EmptyState";
 
 const FILTERS = [
   { label: "All",       value: null        },
@@ -11,17 +13,45 @@ const FILTERS = [
   { label: "Completed", value: "COMPLETED" },
 ];
 
+function SkeletonRow() {
+  return (
+    <tr className="border-b border-border animate-pulse">
+      <td className="px-6 py-3">
+        <div className="h-3 w-14 rounded bg-[#1E1E22]" />
+      </td>
+      <td className="px-6 py-3">
+        <div className="h-3 w-40 rounded bg-[#1E1E22]" />
+      </td>
+      <td className="px-6 py-3">
+        <div className="h-3 w-28 rounded bg-[#1E1E22]" />
+      </td>
+      <td className="px-6 py-3">
+        <div className="h-3 w-20 rounded bg-[#1E1E22]" />
+      </td>
+      <td className="px-6 py-3">
+        <div className="h-3 w-10 rounded bg-[#1E1E22]" />
+      </td>
+    </tr>
+  );
+}
+
 export default function SessionList() {
   const [activeFilter, setActiveFilter] = useState(null);
+  const [loading, setLoading]           = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 1200);
+    return () => clearTimeout(t);
+  }, []);
 
   const sessions = mockSessionsResponse.data.filter(
     (s) => activeFilter === null || s.status === activeFilter
   );
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 overflow-hidden">
       {/* Filter bar */}
-      <div className="flex items-center gap-1 px-6 py-3 border-b border-border">
+      <div className="flex items-center gap-1 px-6 py-3 border-b border-border shrink-0">
         {FILTERS.map((f) => (
           <button
             key={f.label}
@@ -40,34 +70,36 @@ export default function SessionList() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="border-b border-border">
-              {["Status", "Name", "Description", "Last Updated", "Actions"].map((h) => (
-                <th
-                  key={h}
-                  className="px-6 py-2.5 text-left font-sans font-normal text-subtle uppercase tracking-widest"
-                  style={{ fontSize: "0.65rem" }}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-6 py-12 text-center font-sans text-sm text-subtle">
-                  No sessions match this filter.
-                </td>
+        {!loading && sessions.length === 0 ? (
+          <EmptyState
+            icon={Layers}
+            title="No sessions match this filter"
+            subtitle="Try a different status filter or create a new session via the API."
+          />
+        ) : (
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b border-border">
+                {["Status", "Name", "Description", "Last Updated", "Actions"].map((h) => (
+                  <th
+                    key={h}
+                    className="px-6 py-2.5 text-left font-sans font-normal text-subtle uppercase tracking-widest"
+                    style={{ fontSize: "0.65rem" }}
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ) : (
-              sessions.map((session) => (
-                <SessionRow key={session.id} session={session} />
-              ))
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading
+                ? [0, 1, 2].map((i) => <SkeletonRow key={i} />)
+                : sessions.map((session) => (
+                    <SessionRow key={session.id} session={session} />
+                  ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
@@ -78,32 +110,23 @@ function SessionRow({ session }) {
 
   return (
     <tr
-      className="border-b border-border group transition-colors duration-150 hover:bg-surface"
+      className="border-b border-border transition-colors duration-150 hover:bg-surface"
       style={{ borderLeft: "2px solid transparent" }}
       onMouseEnter={(e) => (e.currentTarget.style.borderLeftColor = "#00E5CC")}
       onMouseLeave={(e) => (e.currentTarget.style.borderLeftColor = "transparent")}
     >
-      {/* Status */}
       <td className="px-6 py-3">
         <StatusBadge status={session.status} />
       </td>
-
-      {/* Name */}
       <td className="px-6 py-3 font-sans text-sm text-text">
         {session.name}
       </td>
-
-      {/* Description */}
       <td className="px-6 py-3 font-sans text-sm text-subtle max-w-xs truncate">
         {session.description ?? <span className="text-muted">—</span>}
       </td>
-
-      {/* Last Updated */}
       <td className="px-6 py-3 font-mono text-xs text-subtle whitespace-nowrap">
         {formatDistanceToNow(new Date(session.updatedAt), { addSuffix: true })}
       </td>
-
-      {/* Actions */}
       <td className="px-6 py-3">
         {isActive ? (
           <Link

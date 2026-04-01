@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import Sidebar from "./components/layout/Sidebar";
 import TopBar from "./components/layout/TopBar";
 import Home from "./pages/Home";
@@ -8,12 +8,14 @@ import SearchPage from "./pages/SearchPage";
 import SettingsPage from "./pages/SettingsPage";
 
 function Layout({ children }) {
+  const { pathname } = useLocation();
+
   return (
     <div className="flex h-screen bg-bg overflow-hidden">
       <Sidebar />
       <div className="flex flex-col flex-1 overflow-hidden">
         <TopBar />
-        <main className="flex-1 overflow-auto">
+        <main key={pathname} className="flex-1 overflow-auto kontex-fade-in">
           {children}
         </main>
       </div>

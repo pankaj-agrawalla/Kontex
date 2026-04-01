@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { GitGraph } from "lucide-react";
 import ReactFlow, {
   Background,
   Controls,
@@ -9,6 +10,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { mockGraph } from "../../data/mock";
+import EmptyState from "../shared/EmptyState";
 
 // Status → Tailwind class mappings
 const STATUS_CLASSES = {
@@ -95,6 +97,16 @@ const defaultEdgeOptions = {
 
 export default function TaskGraph({ sessionId }) {
   const navigate = useNavigate();
+
+  if (mockGraph.nodes.length === 0) {
+    return (
+      <EmptyState
+        icon={GitGraph}
+        title="No tasks yet"
+        subtitle="Tasks will appear here as the agent works through the session."
+      />
+    );
+  }
 
   const initialNodes = mockGraph.nodes.map((n) => ({
     ...n,

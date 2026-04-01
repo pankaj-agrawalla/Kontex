@@ -1,32 +1,53 @@
 import { useState } from "react";
 import { X, FileCode } from "lucide-react";
 import { mockDiff, mockTimeline } from "../../data/mock";
+import { useUiStore } from "../../store/ui";
+import { useSessionsStore } from "../../store/sessions";
 
 function formatDelta(delta) {
   if (delta >= 0) return `+${delta.toLocaleString()}`;
   return `−${Math.abs(delta).toLocaleString()}`;
 }
 
-export default function RollbackDrawer({ open, onClose, snapshotId }) {
+export default function RollbackDrawer() {
+  const open         = useUiStore((s) => s.rollbackDrawerOpen);
+  const closeRollback = useUiStore((s) => s.closeRollback);
+
+  const activeSnapshotId  = useSessionsStore((s) => s.activeSnapshotId);
+  const timelineSnapshots = useSessionsStore((s) => s.timelineSnapshots);
+  const activeSessionId   = useSessionsStore((s) => s.activeSessionId);
+  const addSnapshot       = useSessionsStore((s) => s.addSnapshot);
+
   const [confirming, setConfirming] = useState(false);
-  const [done, setDone] = useState(false);
+  const [done, setDone]             = useState(false);
 
-  // Look up label from timeline for "Restoring to:" text
-  const targetSnapshot = mockTimeline.find((s) => s.id === snapshotId);
+  const snapshots     = timelineSnapshots[activeSessionId ?? "sess_01"] ?? [];
+  const targetSnapshot = snapshots.find((s) => s.id === activeSnapshotId)
+    ?? mockTimeline.find((s) => s.id === activeSnapshotId);
 
-  // In Sprint 6 this swaps for useDiff(sessionId, latestId, snapshotId)
+  // In production: useDiff(sessionId, latestId, activeSnapshotId)
   const diff = mockDiff;
 
   function handleConfirm() {
-    // In Sprint 6: call POST /v1/snapshots/:snapshotId/rollback then invalidate timeline query
-    // Rollback creates a new snapshot — never removes existing ones
     setConfirming(true);
     setTimeout(() => {
+      // Append rollback snapshot — never removes existing ones
+      addSnapshot({
+        id:           `snap_rollback_${Date.now()}`,
+        label:        `Rollback to: ${targetSnapshot?.label ?? activeSnapshotId}`,
+        taskId:       targetSnapshot?.taskId ?? null,
+        taskName:     targetSnapshot?.taskName ?? null,
+        source:       "mcp",
+        enriched:     false,
+        tokenTotal:   targetSnapshot?.tokenTotal ?? 0,
+        tokenDelta:   0,
+        createdAt:    new Date().toISOString(),
+      });
       setConfirming(false);
       setDone(true);
       setTimeout(() => {
         setDone(false);
-        onClose();
+        closeRollback();
       }, 1200);
     }, 800);
   }
@@ -34,7 +55,7 @@ export default function RollbackDrawer({ open, onClose, snapshotId }) {
   function handleClose() {
     setConfirming(false);
     setDone(false);
-    onClose();
+    closeRollback();
   }
 
   return (
@@ -77,11 +98,11 @@ export default function RollbackDrawer({ open, onClose, snapshotId }) {
         <div className="flex-1 overflow-auto px-5 py-4 flex flex-col gap-5">
           {/* Restoring to */}
           <div>
-            <p className="font-sans text-xs text-subtle uppercase tracking-widest mb-1" style={{ fontSize: "0.65rem" }}>
+            <p className="font-sans text-2xs text-subtle uppercase tracking-widest mb-1">
               Restoring to
             </p>
             <p className="font-sans text-sm text-text">
-              {targetSnapshot?.label ?? snapshotId ?? "—"}
+              {targetSnapshot?.label ?? activeSnapshotId ?? "—"}
             </p>
             {targetSnapshot?.taskName && (
               <p className="font-sans text-2xs text-subtle mt-0.5">
@@ -94,9 +115,8 @@ export default function RollbackDrawer({ open, onClose, snapshotId }) {
           {diff.added.length > 0 && (
             <div>
               <p
-                className="font-sans text-subtle uppercase tracking-widest mb-2"
-                style={{ fontSize: "0.65rem" }}
-              >
+                className="font-sans text-2xs text-subtle uppercase tracking-widest mb-2"
+>
                 Files added in this restore
               </p>
               <div className="flex flex-col gap-1">
@@ -117,9 +137,8 @@ export default function RollbackDrawer({ open, onClose, snapshotId }) {
           {diff.removed.length > 0 && (
             <div>
               <p
-                className="font-sans text-subtle uppercase tracking-widest mb-2"
-                style={{ fontSize: "0.65rem" }}
-              >
+                className="font-sans text-2xs text-subtle uppercase tracking-widest mb-2"
+>
                 Files removed from current context
               </p>
               <div className="flex flex-col gap-1">
@@ -143,10 +162,7 @@ export default function RollbackDrawer({ open, onClose, snapshotId }) {
 
           {/* Token delta */}
           <div>
-            <p
-              className="font-sans text-subtle uppercase tracking-widest mb-1"
-              style={{ fontSize: "0.65rem" }}
-            >
+            <p className="font-sans text-2xs text-subtle uppercase tracking-widest mb-1">
               Token delta
             </p>
             <p className="font-mono text-2xl text-amber font-medium">

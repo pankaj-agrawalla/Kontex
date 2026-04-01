@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, KeyRound } from "lucide-react";
+import EmptyState from "../shared/EmptyState";
 import { mockKeys } from "../../data/mock";
 
 // Simulates POST /v1/keys — returns a fake key with value (only time it's shown)
@@ -128,9 +129,11 @@ export default function KeysManager() {
 
       {/* Keys table */}
       {activeKeys.length === 0 ? (
-        <p className="font-sans text-sm text-subtle">
-          No API keys — generate one above
-        </p>
+        <EmptyState
+          icon={KeyRound}
+          title="No API keys"
+          subtitle="Generate one above to authenticate API requests."
+        />
       ) : (
         <div className="border border-border rounded-md overflow-hidden">
           <table className="w-full">

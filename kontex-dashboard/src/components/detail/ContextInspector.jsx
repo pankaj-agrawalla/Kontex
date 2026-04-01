@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, FileCode } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { Scan } from "lucide-react";
 import { mockSnapshot } from "../../data/mock";
+import { useSessionsStore } from "../../store/sessions";
+import EmptyState from "../shared/EmptyState";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -35,10 +38,7 @@ function Section({ title, count, badge, defaultOpen = true, children }) {
         ) : (
           <ChevronRight size={12} className="text-subtle shrink-0" />
         )}
-        <span
-          className="font-sans font-normal text-subtle uppercase tracking-widest flex-1 text-left"
-          style={{ fontSize: "0.65rem" }}
-        >
+        <span className="font-sans text-2xs font-normal text-subtle uppercase tracking-widest flex-1 text-left">
           {title}
         </span>
         {badge}
@@ -87,10 +87,7 @@ function ReasoningBlock({ reasoning }) {
         className="flex items-center gap-1.5 text-amber hover:opacity-80 transition-opacity"
       >
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-        <span
-          className="font-sans uppercase tracking-widest"
-          style={{ fontSize: "0.65rem" }}
-        >
+        <span className="font-sans text-2xs uppercase tracking-widest">
           Reasoning
         </span>
       </button>
@@ -226,21 +223,20 @@ function LogEventsSection({ logEvents, enriched }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function ContextInspector({ snapshotId }) {
-  // In Sprint 6 this is replaced by a React Query hook.
-  // For now: show mockSnapshot when any id is selected.
-  const snapshot = snapshotId ? mockSnapshot : null;
+export default function ContextInspector() {
+  const activeSnapshotId = useSessionsStore((s) => s.activeSnapshotId);
 
-  if (!snapshotId || !snapshot) {
+  // In production this is replaced by a React Query hook fetching /v1/snapshots/:id.
+  // For mock: show mockSnapshot for any selected id.
+  const snapshot = activeSnapshotId ? mockSnapshot : null;
+
+  if (!activeSnapshotId || !snapshot) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <p className="font-sans text-sm text-subtle">Select a checkpoint</p>
-          <p className="font-sans text-xs text-muted mt-1">
-            Choose a snapshot from the timeline to inspect its context state
-          </p>
-        </div>
-      </div>
+      <EmptyState
+        icon={Scan}
+        title="Select a checkpoint"
+        subtitle="Choose a snapshot from the timeline to inspect its context state"
+      />
     );
   }
 

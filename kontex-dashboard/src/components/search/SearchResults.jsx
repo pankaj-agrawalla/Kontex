@@ -1,5 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
+import { SearchX, ServerOff } from "lucide-react";
+import EmptyState from "../shared/EmptyState";
 
 const SOURCE_CLASSES = {
   proxy:       "text-subtle border-muted",
@@ -34,21 +36,21 @@ function ScoreBar({ score }) {
 
 export function SearchUnavailable() {
   return (
-    <div className="px-6 py-12 text-center">
-      <p className="font-sans text-sm text-subtle">
-        Semantic search not configured — Qdrant or Voyage AI not set up
-      </p>
-    </div>
+    <EmptyState
+      icon={ServerOff}
+      title="Semantic search not configured"
+      subtitle="Qdrant or Voyage AI not set up"
+    />
   );
 }
 
 export function SearchEmpty() {
   return (
-    <div className="px-6 py-12 text-center">
-      <p className="font-sans text-sm text-subtle">
-        No results found — try different keywords
-      </p>
-    </div>
+    <EmptyState
+      icon={SearchX}
+      title="No results found"
+      subtitle="Try different keywords"
+    />
   );
 }
 

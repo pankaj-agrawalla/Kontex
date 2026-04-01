@@ -19,6 +19,15 @@ body {
 ::-webkit-scrollbar-thumb { background: #3A3A42; border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: #00E5CC; }
 
+/* Page transition */
+@keyframes kontex-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.kontex-fade-in {
+  animation: kontex-fade-in 150ms ease forwards;
+}
+
 /* Task graph pulse ring for ACTIVE nodes */
 @keyframes kontex-pulse-ring {
   0%, 100% { opacity: 0.15; }

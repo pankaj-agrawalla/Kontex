@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { mockSession } from "../../data/mock";
@@ -9,16 +8,7 @@ import RollbackDrawer from "../rollback/RollbackDrawer";
 
 export default function SessionDetail() {
   const navigate = useNavigate();
-  const session = mockSession;
-
-  const [selectedSnapshotId, setSelectedSnapshotId] = useState(null);
-  const [rollbackOpen, setRollbackOpen] = useState(false);
-  const [rollbackTargetId, setRollbackTargetId] = useState(null);
-
-  function handleRollback(snapshotId) {
-    setRollbackTargetId(snapshotId);
-    setRollbackOpen(true);
-  }
+  const session  = mockSession;
 
   return (
     <div className="flex flex-col h-full">
@@ -46,25 +36,17 @@ export default function SessionDetail() {
       <div className="flex flex-1 overflow-hidden">
         {/* Left — Timeline */}
         <div className="w-[280px] shrink-0 border-r border-border overflow-hidden">
-          <SnapshotTimeline
-            selectedId={selectedSnapshotId}
-            onSelect={setSelectedSnapshotId}
-            onRollback={handleRollback}
-          />
+          <SnapshotTimeline />
         </div>
 
         {/* Right — Inspector */}
         <div className="flex-1 overflow-hidden">
-          <ContextInspector snapshotId={selectedSnapshotId} />
+          <ContextInspector />
         </div>
       </div>
 
       {/* Rollback drawer */}
-      <RollbackDrawer
-        open={rollbackOpen}
-        onClose={() => setRollbackOpen(false)}
-        snapshotId={rollbackTargetId}
-      />
+      <RollbackDrawer />
     </div>
   );
 }
