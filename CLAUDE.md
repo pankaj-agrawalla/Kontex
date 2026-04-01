@@ -349,3 +349,323 @@ cd kontex-api
 
 # Verify done criteria before moving to next sprint
 ```
+# SPRINT 2 — Snapshot Engine
+
+**Goal:** Core snapshot write/read. ContextBundle type defined. Stored in R2. Token counting. This is the fundamental Kontex primitive — everything else builds on it.
+
+**Done criteria:**
+- [ ] `POST /v1/tasks/:id/snapshots` creates Postgres record + R2 blob
+- [ ] `GET /v1/snapshots/:id` returns metadata + full bundle
+- [ ] R2 key format: `bundles/{snapshotId}.json`
+- [ ] `source` field defaults to `"proxy"`
+- [ ] `enriched` defaults false
+- [ ] Cross-user snapshot access → 403
+- [ ] R2 error → 502, process does not crash
+- [ ] Token total stored correctly
+
+---
+
+## Prompt 2.1 — ContextBundle types
+
+```
+Create src/types/bundle.ts with the complete ContextBundle type:
+
+export interface ContextFile {
+  path: string
+  content?: string          // populated by log watcher, empty on proxy creation
+  contentHash: string       // sha256 of file content
+  tokenCount: number
+}
+
+export interface ToolCall {
+  tool: string
+  input: unknown
+  output: unknown
+  status: "success" | "error"
+  timestamp: string         // ISO
+}
+
+export interface Message {
+  role: "user" | "assistant"
+  content: string | unknown[]
+  timestamp?: string
+}
+
+export interface LogEvent {
+  type: string
+  timestamp: string
+  data: unknown             // raw Claude Code JSONL event
+}
+
+export interface ContextBundle {
+  snapshotId: string
+  taskId: string
+  sessionId: string
+  capturedAt: string        // ISO
+  model: string
+  tokenTotal: number
+  source: "proxy" | "log_watcher" | "mcp"
+  enriched: boolean
+  files: ContextFile[]      // empty on proxy creation, filled by log watcher
+  toolCalls: ToolCall[]     // partial on proxy, complete after log watcher
+  messages: Message[]       // from proxy messages array
+  reasoning?: string        // from thinking blocks (proxy) or log watcher
+  logEvents: LogEvent[]     // raw JSONL events, empty until log watcher runs
+}
+
+Also add to src/types/api.ts:
+  export interface ApiError {
+    error: string
+    message: string
+    details?: unknown
+  }
+
+  export type SnapshotSource = "proxy" | "log_watcher" | "mcp"
+```
+
+---
+
+## Prompt 2.2 — Bundle service (R2 read/write)
+
+```
+Create src/services/bundle.service.ts:
+
+Import: { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3"
+Import: { r2, R2_BUCKET } from "../r2"
+Import: { ContextBundle } from "../types/bundle"
+
+export async function writeBundle(snapshotId: string, bundle: ContextBundle): Promise<string> {
+  const key = `bundles/${snapshotId}.json`
+  const body = JSON.stringify(bundle)
+  try {
+    await r2.send(new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: key,
+      Body: body,
+      ContentType: "application/json"
+    }))
+    return key
+  } catch (err) {
+    throw new Error(`R2_WRITE_FAILED: ${(err as Error).message}`)
+  }
+}
+
+export async function readBundle(r2Key: string): Promise<ContextBundle> {
+  try {
+    const res = await r2.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: r2Key }))
+    const body = await res.Body?.transformToString()
+    if (!body) throw new Error("Empty body from R2")
+    return JSON.parse(body) as ContextBundle
+  } catch (err) {
+    throw new Error(`R2_READ_FAILED: ${(err as Error).message}`)
+  }
+}
+
+export async function mergeBundle(r2Key: string, enrichment: {
+  files?: ContextFile[]
+  toolCalls?: ToolCall[]
+  logEvents?: LogEvent[]
+  reasoning?: string
+}): Promise<void> {
+  const existing = await readBundle(r2Key)
+  const merged: ContextBundle = {
+    ...existing,
+    enriched: true,
+    files: enrichment.files ?? existing.files,
+    toolCalls: enrichment.toolCalls ?? existing.toolCalls,
+    logEvents: [...existing.logEvents, ...(enrichment.logEvents ?? [])],
+    reasoning: enrichment.reasoning ?? existing.reasoning,
+  }
+  await writeBundle(existing.snapshotId, merged)
+}
+
+All errors must throw with a typed message string starting with an error code (R2_WRITE_FAILED, R2_READ_FAILED).
+Routes catch these and return 502 upstream_error.
+```
+
+---
+
+## Prompt 2.3 — Snapshot service
+
+```
+Create src/services/snapshot.service.ts:
+
+Import: db, bundle.service, tiktoken, types
+
+export async function createSnapshot(params: {
+  taskId: string
+  label: string
+  bundle: ContextBundle
+  userId: string
+}): Promise<Snapshot> {
+  // 1. Validate task exists and belongs to userId (via task.session.userId)
+  const task = await db.task.findUnique({
+    where: { id: params.taskId },
+    include: { session: true }
+  })
+  if (!task || task.session.userId !== params.userId) {
+    throw new Error("NOT_FOUND: Task not found")
+  }
+
+  // 2. Count tokens (use bundle.tokenTotal if already set, else count messages)
+  const tokenTotal = params.bundle.tokenTotal || countTokens(params.bundle)
+
+  // 3. Write bundle to R2
+  const bundleWithId = { ...params.bundle, snapshotId: "pending", tokenTotal }
+  const snapshotId = generateId()  // use nanoid
+  bundleWithId.snapshotId = snapshotId
+  const r2Key = await writeBundle(snapshotId, bundleWithId)
+
+  // 4. Create Snapshot record in Postgres
+  const snapshot = await db.snapshot.create({
+    data: {
+      id: snapshotId,
+      taskId: params.taskId,
+      label: params.label,
+      tokenTotal,
+      model: params.bundle.model,
+      source: params.bundle.source,
+      r2Key,
+    }
+  })
+
+  return snapshot
+}
+
+export async function getSnapshot(snapshotId: string, userId: string): Promise<{
+  snapshot: Snapshot
+  bundle: ContextBundle
+}> {
+  const snapshot = await db.snapshot.findUnique({
+    where: { id: snapshotId },
+    include: { task: { include: { session: true } } }
+  })
+  if (!snapshot || snapshot.task.session.userId !== userId) {
+    throw new Error("NOT_FOUND: Snapshot not found")
+  }
+  const bundle = await readBundle(snapshot.r2Key)
+  return { snapshot, bundle }
+}
+
+export async function enrichSnapshot(params: {
+  snapshotId: string
+  enrichment: { files?: ContextFile[], toolCalls?: ToolCall[], logEvents?: LogEvent[], reasoning?: string }
+  userId: string
+}): Promise<void> {
+  const snapshot = await db.snapshot.findUnique({
+    where: { id: params.snapshotId },
+    include: { task: { include: { session: true } } }
+  })
+  if (!snapshot || snapshot.task.session.userId !== params.userId) {
+    throw new Error("NOT_FOUND: Snapshot not found")
+  }
+
+  // Check enrichment window
+  const windowMs = Number(config.ENRICH_WINDOW_SECONDS) * 1000
+  const age = Date.now() - snapshot.createdAt.getTime()
+  if (age > windowMs) {
+    throw new Error("ENRICH_WINDOW_EXPIRED: Enrichment window has closed")
+  }
+
+  await mergeBundle(snapshot.r2Key, params.enrichment)
+  await db.snapshot.update({
+    where: { id: params.snapshotId },
+    data: { enriched: true, enrichedAt: new Date() }
+  })
+}
+
+Helper: countTokens(bundle: ContextBundle): number
+  Use tiktoken to count tokens in messages array
+  Sum with file tokenCounts
+  Return total
+
+Helper: generateId(): string
+  Use nanoid(21) for IDs
+```
+
+---
+
+## Prompt 2.4 — Snapshot routes
+
+```
+Create src/routes/snapshots.ts. Mount in index.ts.
+
+POST /v1/tasks/:taskId/snapshots
+  Zod body:
+    label: z.string().min(1).max(200)
+    bundle: z.object({
+      model: z.string(),
+      tokenTotal: z.number().optional(),
+      source: z.enum(["proxy", "log_watcher", "mcp"]).default("proxy"),
+      files: z.array(z.any()).default([]),
+      toolCalls: z.array(z.any()).default([]),
+      messages: z.array(z.any()),
+      reasoning: z.string().optional(),
+      logEvents: z.array(z.any()).default([]),
+    })
+  Call: snapshot.service.createSnapshot
+  On "NOT_FOUND" error → 404
+  On "R2_WRITE_FAILED" error → 502 upstream_error
+  Return 201: { id, taskId, label, tokenTotal, source, enriched, createdAt }
+
+GET /v1/sessions/:sessionId/snapshots
+  Validate session ownership → 404 if not
+  Fetch all snapshots across all tasks in session
+  Join through: session → tasks → snapshots
+  Order: createdAt desc
+  Query params: limit (default 20, max 100), cursor
+  Return 200: { data: SnapshotMeta[], nextCursor }
+  SnapshotMeta = snapshot fields WITHOUT bundle (metadata only)
+
+GET /v1/snapshots/:id
+  Call: snapshot.service.getSnapshot
+  On "NOT_FOUND" → 404
+  On "R2_READ_FAILED" → 502
+  Return 200: { ...snapshotMetadata, bundle: ContextBundle }
+
+GET /v1/snapshots/:id/bundle
+  Same as above but return only the bundle JSON, no metadata wrapper
+
+Mount in index.ts:
+  app.route("/v1", snapshotsRouter)
+```
+
+---
+
+## Prompt 2.5 — Sprint 2 verification
+
+```
+Create tests/snapshots.test.ts:
+
+Test setup: create a session and task using the seeded test_key_dev user.
+
+test("POST /v1/tasks/:id/snapshots creates snapshot", async () => {
+  // POST a snapshot with a minimal bundle
+  // Assert 201, id defined, source === "proxy", enriched === false
+})
+
+test("GET /v1/snapshots/:id returns bundle", async () => {
+  // Create snapshot, then GET it
+  // Assert bundle.messages is returned
+  // Assert bundle.files is []
+})
+
+test("GET /v1/snapshots/:id wrong user → 404", async () => {
+  // Create snapshot as user A, GET with user B key
+  // Assert 404
+})
+
+Then manually verify:
+  - POST creates a file in R2 at bundles/{snapshotId}.json
+  - GET /v1/snapshots/:id/bundle returns raw ContextBundle JSON
+  - R2 key format is correct
+  - source field is "proxy" by default
+  - enriched field is false by default
+
+Run: npm test
+Fix all failures before Sprint 3.
+```
+
+---
+
+---
