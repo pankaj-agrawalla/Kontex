@@ -11,6 +11,7 @@ import tasks from "./routes/tasks";
 import snapshots from "./routes/snapshots";
 import proxy from "./routes/proxy";
 import enrich from "./routes/enrich";
+import mcpRoute from "./routes/mcp";
 import type { Variables } from "./types/api";
 
 const app = new Hono<{ Variables: Variables }>();
@@ -23,6 +24,7 @@ app.get("/health", (c) => {
 
 app.route("/proxy", proxy);
 app.route("/v1", enrich);
+app.route("/mcp", mcpRoute);
 
 app.use("/v1/*", auth);
 app.route("/v1/sessions", sessions);

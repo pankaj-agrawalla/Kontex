@@ -349,125 +349,165 @@ cd kontex-api
 
 # Verify done criteria before moving to next sprint
 ```
-# SPRINT 5 — Rollback
+## Prompt 6.1 — MCP server setup
 
-**Goal:** Full rollback API. Forward-only history. Rollback creates a new snapshot, never deletes. Returns a ContextBundle ready for re-injection into an agent session.
+```
+Create src/mcp/server.ts:
 
-**Done criteria:**
-- [ ] `POST /v1/snapshots/:id/rollback` returns full ContextBundle
-- [ ] A new Snapshot record created, original untouched
-- [ ] Rollback snapshot label: `"Rollback to: {original label}"`
-- [ ] Rollback snapshot `source` inherits from original
-- [ ] Cross-user rollback → 403
-- [ ] `rollback_snapshot_id` and `source_snapshot_id` both in response
+Set up an MCP server using the @modelcontextprotocol/sdk package (add to dependencies):
+  npm install @modelcontextprotocol/sdk
+
+The MCP server exposes tools for explicit agent control.
+It shares auth with the REST API — same ApiKey lookup.
+
+Create src/routes/mcp.ts:
+  Mount the MCP server at POST /mcp
+  Read X-Kontex-Api-Key or Authorization header for auth
+  Pass userId to all tool handlers
+
+The MCP server handles tool discovery (list tools) and tool execution (call tool).
+Keep server.ts as the setup/registration file.
+Tool implementations live in mcp/tools/*.ts.
+```
 
 ---
 
-## Prompt 5.1 — Rollback service + route
+## Prompt 6.2 — MCP session + task tools
 
 ```
-Add to src/services/snapshot.service.ts:
+Create src/mcp/tools/session.tools.ts:
 
-export async function rollbackToSnapshot(params: {
-  snapshotId: string
-  userId: string
-}): Promise<{
-  rollbackSnapshotId: string
-  sourceSnapshotId: string
-  label: string
-  capturedAt: string
-  tokenTotal: number
-  bundle: ContextBundle
-}> {
-  // 1. Fetch source snapshot + validate ownership
-  const { snapshot, bundle } = await getSnapshot(params.snapshotId, params.userId)
+Tool: kontex_session_start
+  Input schema: { name: string, description?: string }
+  Handler: calls db.session.create with userId, returns { session_id, message: "Session started: {name}" }
 
-  // 2. Create new snapshot on the same task
-  //    label: "Rollback to: {original label}"
-  //    bundle: copy of original bundle, new snapshotId, capturedAt = now
-  const newSnapshotId = generateId()
-  const newBundle: ContextBundle = {
-    ...bundle,
-    snapshotId: newSnapshotId,
-    capturedAt: new Date().toISOString(),
-    source: snapshot.source as SnapshotSource,
-    enriched: false,
-    logEvents: [],
-  }
+Tool: kontex_session_pause
+  Input schema: { session_id: string }
+  Handler: validates ownership, sets status PAUSED, returns { success: true }
 
-  const r2Key = await writeBundle(newSnapshotId, newBundle)
+Tool: kontex_task_start
+  Input schema: { session_id: string, name: string, parent_task_id?: string }
+  Handler: validates session ownership, creates task with status ACTIVE
+  Returns { task_id, message: "Task started: {name}" }
 
-  const newSnapshot = await db.snapshot.create({
-    data: {
-      id: newSnapshotId,
-      taskId: snapshot.taskId,
-      label: `Rollback to: ${snapshot.label}`,
-      tokenTotal: snapshot.tokenTotal,
-      model: snapshot.model,
-      source: snapshot.source,
-      r2Key,
-    }
-  })
+Tool: kontex_task_done
+  Input schema: { task_id: string, status: "completed" | "failed" }
+  Handler: validates ownership via task.session, updates task status
+  Returns { success: true }
 
-  return {
-    rollbackSnapshotId: newSnapshot.id,
-    sourceSnapshotId: params.snapshotId,
-    label: newSnapshot.label,
-    capturedAt: newBundle.capturedAt,
-    tokenTotal: newSnapshot.tokenTotal,
-    bundle: newBundle,
-  }
-}
+Register all four tools in src/mcp/server.ts.
 
-Add to src/routes/snapshots.ts:
+Error handling for all tools:
+  Catch service errors
+  Return human-readable error string as tool result content
+  Never expose stack traces or internal error codes in tool results
+```
 
-POST /v1/snapshots/:id/rollback
-  No request body needed
-  Call: snapshot.service.rollbackToSnapshot({ snapshotId: params.id, userId: c.get("userId") })
-  On "NOT_FOUND" → 404
-  On "R2_READ_FAILED" → 502
-  Return 200:
+---
+
+## Prompt 6.3 — MCP snapshot + rollback tools
+
+```
+Create src/mcp/tools/snapshot.tools.ts:
+
+Tool: kontex_snapshot
+  Input schema:
+    task_id: string
+    label: string
+    files?: ContextFile[]
+    tool_calls?: ToolCall[]
+    messages?: Message[]
+    reasoning?: string
+    model?: string
+  Handler:
+    Build ContextBundle from inputs:
+      source: "mcp"
+      enriched: false
+      tokenTotal: count from messages + files
+      files: input.files ?? []
+      toolCalls: input.tool_calls ?? []
+      messages: input.messages ?? []
+      logEvents: []
+    Call snapshot.service.createSnapshot
+  Returns { snapshot_id, token_total, message: "Snapshot saved: {label}" }
+
+Create src/mcp/tools/rollback.tools.ts:
+
+Tool: kontex_rollback
+  Input schema: { snapshot_id: string }
+  Handler: calls snapshot.service.rollbackToSnapshot
+  Returns:
     {
-      rollback_snapshot_id: string,
-      source_snapshot_id: string,
-      label: string,
-      captured_at: string,
-      token_total: number,
-      bundle: ContextBundle
+      snapshot_id: rollbackSnapshotId,
+      label: label,
+      captured_at: capturedAt,
+      bundle: bundle (full ContextBundle),
+      message: "Restored to: {label}. Re-inject bundle.messages as your conversation history."
     }
+
+Register both in src/mcp/server.ts.
+
+The rollback tool message must clearly instruct the agent on how to re-inject context:
+  "Restored to: {label}. To resume from this state:
+   1. Use bundle.messages as your conversation history
+   2. Re-open files listed in bundle.files
+   3. bundle.toolCalls shows what was done up to this point"
 ```
 
 ---
 
-## Prompt 5.2 — Rollback verification
+## Prompt 6.4 — MCP docs + verification
 
 ```
-Add to tests/snapshots.test.ts:
+Write docs/mcp-advanced.md:
 
-test("POST /v1/snapshots/:id/rollback creates new snapshot", async () => {
-  // Create a snapshot, then POST /v1/snapshots/:id/rollback
-  // Assert 200
-  // Assert rollback_snapshot_id !== source_snapshot_id
-  // Assert label starts with "Rollback to: "
-  // Assert bundle is returned with messages array
-})
+  # Kontex MCP Tools (Advanced)
 
-test("POST /v1/snapshots/:id/rollback original snapshot unchanged", async () => {
-  // Create snapshot, rollback, GET original snapshot
-  // Assert original snapshot label is unchanged
-  // Assert original r2Key is unchanged
-})
+  ## When to use MCP
+  The proxy + log watcher handle snapshots automatically.
+  Use MCP when you want:
+    - Named checkpoints at specific semantic moments
+    - Explicit task structure (parent/child tasks)
+    - Agent-initiated rollback ("this approach isn't working, go back")
 
-test("POST /v1/snapshots/:id/rollback wrong user → 404", async () => {
-  // Create snapshot as user A, rollback as user B
-  // Assert 404
-})
+  ## Setup
+  Add to ~/.claude/mcp_servers.json:
+  {
+    "kontex": {
+      "url": "https://api.usekontex.com/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_KONTEX_API_KEY"
+      }
+    }
+  }
+
+  ## CLAUDE.md snippet
+  Paste this in your project's CLAUDE.md to instruct the agent:
+
+  "Kontex MCP tools are available for session state management:
+  - Call kontex_session_start at the beginning of a new working session
+  - Call kontex_task_start when beginning a discrete unit of work
+  - Call kontex_snapshot after completing meaningful steps
+  - Call kontex_rollback if the current approach is failing and you need to restore a prior state
+  - Call kontex_task_done when a task completes or fails
+  Always provide descriptive labels to kontex_snapshot — they appear in the dashboard."
+
+  ## Tool reference
+  Table: tool name, inputs, returns, when to call it
+
+  ## Using MCP with proxy (recommended)
+  Run both together: proxy auto-snapshots, MCP adds named checkpoints on top.
+
+Then verify:
+  1. Connect Claude Code to the MCP server at http://localhost:3000/mcp
+  2. In a Claude Code session: call kontex_session_start → kontex_task_start → kontex_snapshot → kontex_rollback
+  3. Verify snapshot in DB has source === "mcp"
+  4. Verify rollback returns full bundle with re-injection message
+  5. All tools return clean messages, no stack traces
 
 Run: npm test
-All tests must pass before Sprint 6.
 ```
 
 ---
 
 ---
-

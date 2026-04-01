@@ -3,7 +3,11 @@
     "allow": [
       "Bash(git submodule:*)",
       "Bash(git ls-tree:*)",
-      "Bash(gh repo:*)"
+      "Bash(gh repo:*)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(list\\(d.get\\('exports',{}\\).keys\\(\\)\\)[:20]\\)\")",
+      "Bash(node:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm test:*)"
     ]
   }
 }
