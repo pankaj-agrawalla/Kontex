@@ -349,163 +349,109 @@ cd kontex-api
 
 # Verify done criteria before moving to next sprint
 ```
-## Prompt 6.1 — MCP server setup
+# SPRINT 7 — Dashboard API
 
-```
-Create src/mcp/server.ts:
+**Goal:** All REST endpoints the Kontex Dashboard frontend needs. Task graph, context diff, snapshot timeline, usage stats.
 
-Set up an MCP server using the @modelcontextprotocol/sdk package (add to dependencies):
-  npm install @modelcontextprotocol/sdk
-
-The MCP server exposes tools for explicit agent control.
-It shares auth with the REST API — same ApiKey lookup.
-
-Create src/routes/mcp.ts:
-  Mount the MCP server at POST /mcp
-  Read X-Kontex-Api-Key or Authorization header for auth
-  Pass userId to all tool handlers
-
-The MCP server handles tool discovery (list tools) and tool execution (call tool).
-Keep server.ts as the setup/registration file.
-Tool implementations live in mcp/tools/*.ts.
-```
+**Done criteria:**
+- [ ] `/graph` returns valid ReactFlow-ready JSON
+- [ ] `/diff` returns typed diff with correct token delta
+- [ ] `/timeline` returns ordered snapshots with source + enriched fields and token deltas
+- [ ] `/usage` returns correct aggregated stats per user
+- [ ] Dashboard frontend connects and renders from these endpoints
 
 ---
 
-## Prompt 6.2 — MCP session + task tools
+## Prompt 7.1 — Diff service
 
 ```
-Create src/mcp/tools/session.tools.ts:
+Create src/services/diff.service.ts:
 
-Tool: kontex_session_start
-  Input schema: { name: string, description?: string }
-  Handler: calls db.session.create with userId, returns { session_id, message: "Session started: {name}" }
+import { ContextBundle, ContextFile, ToolCall, Message } from "../types/bundle"
 
-Tool: kontex_session_pause
-  Input schema: { session_id: string }
-  Handler: validates ownership, sets status PAUSED, returns { success: true }
-
-Tool: kontex_task_start
-  Input schema: { session_id: string, name: string, parent_task_id?: string }
-  Handler: validates session ownership, creates task with status ACTIVE
-  Returns { task_id, message: "Task started: {name}" }
-
-Tool: kontex_task_done
-  Input schema: { task_id: string, status: "completed" | "failed" }
-  Handler: validates ownership via task.session, updates task status
-  Returns { success: true }
-
-Register all four tools in src/mcp/server.ts.
-
-Error handling for all tools:
-  Catch service errors
-  Return human-readable error string as tool result content
-  Never expose stack traces or internal error codes in tool results
-```
-
----
-
-## Prompt 6.3 — MCP snapshot + rollback tools
-
-```
-Create src/mcp/tools/snapshot.tools.ts:
-
-Tool: kontex_snapshot
-  Input schema:
-    task_id: string
-    label: string
-    files?: ContextFile[]
-    tool_calls?: ToolCall[]
-    messages?: Message[]
-    reasoning?: string
-    model?: string
-  Handler:
-    Build ContextBundle from inputs:
-      source: "mcp"
-      enriched: false
-      tokenTotal: count from messages + files
-      files: input.files ?? []
-      toolCalls: input.tool_calls ?? []
-      messages: input.messages ?? []
-      logEvents: []
-    Call snapshot.service.createSnapshot
-  Returns { snapshot_id, token_total, message: "Snapshot saved: {label}" }
-
-Create src/mcp/tools/rollback.tools.ts:
-
-Tool: kontex_rollback
-  Input schema: { snapshot_id: string }
-  Handler: calls snapshot.service.rollbackToSnapshot
-  Returns:
-    {
-      snapshot_id: rollbackSnapshotId,
-      label: label,
-      captured_at: capturedAt,
-      bundle: bundle (full ContextBundle),
-      message: "Restored to: {label}. Re-inject bundle.messages as your conversation history."
-    }
-
-Register both in src/mcp/server.ts.
-
-The rollback tool message must clearly instruct the agent on how to re-inject context:
-  "Restored to: {label}. To resume from this state:
-   1. Use bundle.messages as your conversation history
-   2. Re-open files listed in bundle.files
-   3. bundle.toolCalls shows what was done up to this point"
-```
-
----
-
-## Prompt 6.4 — MCP docs + verification
-
-```
-Write docs/mcp-advanced.md:
-
-  # Kontex MCP Tools (Advanced)
-
-  ## When to use MCP
-  The proxy + log watcher handle snapshots automatically.
-  Use MCP when you want:
-    - Named checkpoints at specific semantic moments
-    - Explicit task structure (parent/child tasks)
-    - Agent-initiated rollback ("this approach isn't working, go back")
-
-  ## Setup
-  Add to ~/.claude/mcp_servers.json:
-  {
-    "kontex": {
-      "url": "https://api.usekontex.com/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_KONTEX_API_KEY"
-      }
-    }
+export interface DiffResult {
+  added: {
+    files: ContextFile[]
+    toolCalls: ToolCall[]
+    messages: Message[]
   }
+  removed: {
+    files: ContextFile[]
+    toolCalls: ToolCall[]
+    messages: Message[]
+  }
+  tokenDelta: number
+}
 
-  ## CLAUDE.md snippet
-  Paste this in your project's CLAUDE.md to instruct the agent:
+export function diffBundles(bundleA: ContextBundle, bundleB: ContextBundle): DiffResult {
+  // Files: compare by path
+  //   added = files in B where path not in A
+  //   removed = files in A where path not in B
+  const filePathsA = new Set(bundleA.files.map(f => f.path))
+  const filePathsB = new Set(bundleB.files.map(f => f.path))
 
-  "Kontex MCP tools are available for session state management:
-  - Call kontex_session_start at the beginning of a new working session
-  - Call kontex_task_start when beginning a discrete unit of work
-  - Call kontex_snapshot after completing meaningful steps
-  - Call kontex_rollback if the current approach is failing and you need to restore a prior state
-  - Call kontex_task_done when a task completes or fails
-  Always provide descriptive labels to kontex_snapshot — they appear in the dashboard."
+  // Tool calls: compare by timestamp
+  //   Get latest timestamp in A. Calls in B after that timestamp = added.
+  const latestATimestamp = bundleA.toolCalls.reduce(...)
 
-  ## Tool reference
-  Table: tool name, inputs, returns, when to call it
+  // Messages: compare by array index
+  //   messages in B beyond bundleA.messages.length = added
+  //   messages in A beyond bundleB.messages.length = removed
 
-  ## Using MCP with proxy (recommended)
-  Run both together: proxy auto-snapshots, MCP adds named checkpoints on top.
+  // tokenDelta: bundleB.tokenTotal - bundleA.tokenTotal
 
-Then verify:
-  1. Connect Claude Code to the MCP server at http://localhost:3000/mcp
-  2. In a Claude Code session: call kontex_session_start → kontex_task_start → kontex_snapshot → kontex_rollback
-  3. Verify snapshot in DB has source === "mcp"
-  4. Verify rollback returns full bundle with re-injection message
-  5. All tools return clean messages, no stack traces
+  return { added, removed, tokenDelta }
+}
+```
 
-Run: npm test
+---
+
+## Prompt 7.2 — Dashboard routes
+
+```
+Create src/routes/dashboard.ts. Mount in index.ts under /v1.
+
+GET /v1/sessions/:id/graph
+  Validate session ownership → 404
+  Fetch all tasks for session with snapshot count
+  Build ReactFlow-compatible JSON:
+    nodes: tasks mapped to:
+      { id: task.id, data: { label: task.name, status: task.status, tokenTotal: sum of snapshot tokenTotals, snapshotCount }, position: { x: 300, y: index * 120 } }
+    edges: tasks with parentTaskId mapped to:
+      { id: "e_{parentId}_{childId}", source: parentTaskId, target: task.id, animated: task.status === "ACTIVE" || task.status === "PENDING" }
+  Return 200: { nodes, edges }
+
+GET /v1/sessions/:id/diff?from={snapshot_id}&to={snapshot_id}
+  Validate session ownership
+  Validate both snapshot ids belong to this session → 400 if not
+  Read both bundles from R2
+  Call diff.service.diffBundles
+  Return 200: { added: { files, toolCalls, messages }, removed: { files, toolCalls, messages }, token_delta }
+
+GET /v1/sessions/:id/snapshots/timeline
+  Validate session ownership
+  Fetch all snapshots across all tasks in session
+  Order: createdAt asc
+  Join with task name
+  Compute tokenDelta per snapshot (diff from previous snapshot's tokenTotal, 0 for first)
+  Return 200: [{
+    id, label, taskId, taskName, source, enriched,
+    tokenTotal, tokenDelta, createdAt
+  }]
+
+GET /v1/usage
+  For c.get("userId"):
+  Return 200: {
+    total_sessions: count of sessions,
+    active_sessions: count where status ACTIVE,
+    total_snapshots: count of all snapshots,
+    total_tokens_stored: sum of all snapshot tokenTotals,
+    snapshots_this_month: count where createdAt >= start of current month,
+    tokens_this_month: sum where createdAt >= start of current month
+  }
+  All counts scoped to the authenticated user via session.userId
+
+Verify each endpoint returns correct data.
 ```
 
 ---
