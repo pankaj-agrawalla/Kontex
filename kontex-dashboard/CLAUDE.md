@@ -251,78 +251,66 @@ cd kontex-dashboard
 
 ---
 
-### Sprint 5 — Search + Keys + Usage
+### Sprint 6 — Wiring + Polish
 
-**Prompt 5.1 — Search page**
+**Prompt 6.1 — Zustand store**
 ```
-Build src/pages/SearchPage.jsx and src/components/search/SearchResults.jsx.
+Set up Zustand stores:
 
-SearchPage layout:
-- Single search input at the top (this is the ONE place in the app with an input — 
-  it is a query input, not a chat input)
-- Input: DM Sans, dark bg #111113, border #1E1E22, focus border teal
-- "Search" button inline (teal, disabled when empty)
-- Optional filter: session selector dropdown (sessions from mockSessionsResponse.data)
-- Results below, powered by mockSearchResults from src/data/mock.js
+src/store/sessions.js:
+  - State: sessions (from mockSessionsResponse.data), activeSessionId, activeSnapshotId
+  - Actions: 
+    setSessions(sessions)
+    setActiveSession(id)
+    setActiveSnapshot(id)
+    addSnapshot(snapshot) — appends to session snapshot list (for post-rollback)
+    NOTE: rollback NEVER removes existing snapshots — it only adds
 
-SearchResults component:
-- List of result rows, each showing:
-  - label (DM Sans medium)
-  - source badge: "proxy" / "log_watcher" / "mcp"
-  - session + task IDs (mono subtle, truncated)
-  - Similarity score: shown as a bar (0–1 range, filled teal) + numeric value in mono
-  - createdAt: relative time
-  - Click navigates to /session/:sessionId and selects the snapshot
+src/store/ui.js:
+  - State: rollbackDrawerOpen, sidebarExpanded, searchQuery
+  - Actions: openRollback, closeRollback, toggleSidebar, setSearchQuery
 
-Empty state: "No results found — try different keywords"
-503 state: "Semantic search not configured — Qdrant or Voyage AI not set up"
-
-Real API: GET /v1/search?q={query}&session_id={optional}&limit=10
-Returns: [{ snapshotId, taskId, sessionId, label, source, score, createdAt }]
+Wire the RollbackDrawer open/close to the ui store.
+Wire SnapshotTimeline selection to sessions store activeSnapshotId.
+Wire ContextInspector to read from sessions store based on activeSnapshotId.
 ```
 
-**Prompt 5.2 — Settings page (API key management)**
+**Prompt 6.2 — Empty states + loading**
 ```
-Build src/pages/SettingsPage.jsx and src/components/keys/KeysManager.jsx.
+Build src/components/shared/EmptyState.jsx:
+  Props: icon (lucide component), title, subtitle
+  Style: centered, icon in muted color at 32px, title DM Sans medium, subtitle subtle small
+  Use it in:
+  - SessionList when no sessions match the active filter
+  - ContextInspector when no snapshot is selected
+    (title: "Select a checkpoint", subtitle: "Choose a snapshot from the timeline to inspect its context state")
+  - TaskGraph if nodes is empty
+  - SearchResults when no results returned
+  - KeysManager when no keys exist
 
-SettingsPage has one section: "API Keys"
-KeysManager component:
-
-Create key section:
-- "Label" input (optional, DM Sans, dark input style)
-- "Generate Key" button (teal)
-- On success (POST /v1/keys): show a one-time display panel with the full key value
-  ("kontex_xxxx...") in a mono code block with a copy-to-clipboard button
-  Warning text: "Copy this key now. It will not be shown again."
-  Dismiss button closes the panel. Key value is never retrieved again.
-
-Keys list (from mockKeys / GET /v1/keys):
-- Table: Label · Last Used · Created · Actions
-- key value is NEVER shown in the list (API never returns it after creation)
-- Actions: "Revoke" button (amber, outline) → DELETE /v1/keys/:id → soft-deletes (active: false)
-  Confirm before revoking: inline confirmation "Revoke this key? Yes / Cancel"
-- lastUsed: relative time (date-fns) or "Never" if null
-- Empty state: "No API keys — generate one above"
-
-No passwords. No OAuth. This is purely API key management.
+Add skeleton loading rows to SessionList:
+  - 3 rows, animated pulse (Tailwind animate-pulse)
+  - Show for 1.2 seconds on mount, then replace with real data
+  - Skeleton color: #1E1E22
 ```
 
-**Prompt 5.3 — Usage stats**
+**Prompt 6.3 — Final polish pass**
 ```
-Build src/components/usage/UsageStats.jsx that displays data from mockUsage in src/data/mock.js.
-Real API: GET /v1/usage
+Final polish pass across all components:
 
-Show as a stats bar at the top of Home.jsx (above the session list):
-Six stat cells in a horizontal row, border-right between each:
-  Total Sessions | Active Sessions | Total Snapshots | Tokens Stored | Snapshots This Month | Tokens This Month
-
-Each cell:
-  - Stat value: large, IBM Plex Mono, text-text
-  - Label: 2xs, uppercase, letter-spacing, text-subtle
-  - Tokens: format with commas (e.g. "1,240,800")
-
-Background: #111113, border-bottom 1px solid #1E1E22, padding 12px 24px
-No charts. No graphs. Numbers only — this is a cockpit, not an analytics dashboard.
+1. Ensure IBM Plex Mono is applied to: all token counts, timestamps, file paths, tool names,
+   status codes, snapshot IDs, API key values
+2. Ensure DM Sans is applied to: all labels, headings, nav items, button text
+3. Check all borders are using #1E1E22 — no box-shadows except the rollback drawer backdrop
+4. Status values are UPPERCASE strings from the API — ensure StatusBadge handles
+   "ACTIVE", "PAUSED", "COMPLETED", "PENDING", "FAILED"
+5. Ensure teal (#00E5CC) is used only for: ACTIVE status, selected states, links, confirm actions
+6. Ensure amber (#F5A623) is used only for: PAUSED status, rollback/destructive actions, token deltas
+7. Ensure red (#FF4D4D) is used only for: FAILED status, error states, revoke confirmations
+8. Verify no component contains: textarea for chat, send button, or any conversational UI pattern
+   (the search input on SearchPage is the only text input in the app)
+9. Add a subtle page transition on route change: opacity 0→1 over 150ms using CSS transition
+10. Verify the sidebar collapses/expands smoothly on hover with CSS transition on width
 ```
 
 ---
