@@ -12,6 +12,7 @@ import snapshots from "./routes/snapshots";
 import proxy from "./routes/proxy";
 import enrich from "./routes/enrich";
 import mcpRoute from "./routes/mcp";
+import dashboard from "./routes/dashboard";
 import type { Variables } from "./types/api";
 
 const app = new Hono<{ Variables: Variables }>();
@@ -30,6 +31,7 @@ app.use("/v1/*", auth);
 app.route("/v1/sessions", sessions);
 app.route("/v1/tasks", tasks);
 app.route("/v1", snapshots);
+app.route("/v1", dashboard);
 
 const port = Number(config.PORT);
 
