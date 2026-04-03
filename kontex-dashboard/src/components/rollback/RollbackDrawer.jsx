@@ -1,8 +1,7 @@
-import { useState } from "react";
 import { X, FileCode } from "lucide-react";
-import { mockDiff, mockTimeline } from "../../data/mock";
 import { useUiStore } from "../../store/ui";
 import { useSessionsStore } from "../../store/sessions";
+import { useRollback, useDiff } from "../../hooks/useTrpc";
 
 function formatDelta(delta) {
   if (delta >= 0) return `+${delta.toLocaleString()}`;
@@ -16,45 +15,26 @@ export default function RollbackDrawer() {
   const activeSnapshotId  = useSessionsStore((s) => s.activeSnapshotId);
   const timelineSnapshots = useSessionsStore((s) => s.timelineSnapshots);
   const activeSessionId   = useSessionsStore((s) => s.activeSessionId);
-  const addSnapshot       = useSessionsStore((s) => s.addSnapshot);
 
-  const [confirming, setConfirming] = useState(false);
-  const [done, setDone]             = useState(false);
+  const { mutate: rollback, isPending, isError } = useRollback(activeSessionId);
 
-  const snapshots     = timelineSnapshots[activeSessionId ?? "sess_01"] ?? [];
-  const targetSnapshot = snapshots.find((s) => s.id === activeSnapshotId)
-    ?? mockTimeline.find((s) => s.id === activeSnapshotId);
+  const snapshots      = timelineSnapshots[activeSessionId ?? ""] ?? [];
+  const targetSnapshot = snapshots.find((s) => s.id === activeSnapshotId);
 
-  // In production: useDiff(sessionId, latestId, activeSnapshotId)
-  const diff = mockDiff;
+  // Latest snapshot id for diff: last in timeline that isn't the target
+  const latestId = snapshots[snapshots.length - 1]?.id;
+  const { data: diff } = useDiff(activeSessionId, latestId, activeSnapshotId);
 
   function handleConfirm() {
-    setConfirming(true);
-    setTimeout(() => {
-      // Append rollback snapshot — never removes existing ones
-      addSnapshot({
-        id:           `snap_rollback_${Date.now()}`,
-        label:        `Rollback to: ${targetSnapshot?.label ?? activeSnapshotId}`,
-        taskId:       targetSnapshot?.taskId ?? null,
-        taskName:     targetSnapshot?.taskName ?? null,
-        source:       "mcp",
-        enriched:     false,
-        tokenTotal:   targetSnapshot?.tokenTotal ?? 0,
-        tokenDelta:   0,
-        createdAt:    new Date().toISOString(),
-      });
-      setConfirming(false);
-      setDone(true);
-      setTimeout(() => {
-        setDone(false);
-        closeRollback();
-      }, 1200);
-    }, 800);
+    rollback(
+      { id: activeSnapshotId },
+      {
+        onSuccess: () => { closeRollback(); },
+      }
+    );
   }
 
   function handleClose() {
-    setConfirming(false);
-    setDone(false);
     closeRollback();
   }
 
@@ -112,7 +92,7 @@ export default function RollbackDrawer() {
           </div>
 
           {/* Files added */}
-          {diff.added.length > 0 && (
+          {diff?.added?.length > 0 && (
             <div>
               <p
                 className="font-sans text-2xs text-subtle uppercase tracking-widest mb-2"
@@ -120,7 +100,7 @@ export default function RollbackDrawer() {
                 Files added in this restore
               </p>
               <div className="flex flex-col gap-1">
-                {diff.added.map((path) => (
+                {diff?.added?.map((path) => (
                   <div
                     key={path}
                     className="flex items-center gap-2 pl-3 py-1.5 border-l-2 border-green bg-green/5"
@@ -134,7 +114,7 @@ export default function RollbackDrawer() {
           )}
 
           {/* Files removed */}
-          {diff.removed.length > 0 && (
+          {diff?.removed?.length > 0 && (
             <div>
               <p
                 className="font-sans text-2xs text-subtle uppercase tracking-widest mb-2"
@@ -142,7 +122,7 @@ export default function RollbackDrawer() {
                 Files removed from current context
               </p>
               <div className="flex flex-col gap-1">
-                {diff.removed.map((path) => (
+                {diff?.removed?.map((path) => (
                   <div
                     key={path}
                     className="flex items-center gap-2 pl-3 py-1.5 border-l-2 border-red bg-red/5"
@@ -156,7 +136,7 @@ export default function RollbackDrawer() {
           )}
 
           {/* No changes */}
-          {diff.added.length === 0 && diff.removed.length === 0 && (
+          {(!diff?.added?.length && !diff?.removed?.length) && (
             <p className="font-sans text-xs text-subtle">No file changes between checkpoints.</p>
           )}
 
@@ -166,7 +146,7 @@ export default function RollbackDrawer() {
               Token delta
             </p>
             <p className="font-mono text-2xl text-amber font-medium">
-              {formatDelta(diff.token_delta)}
+              {diff ? formatDelta(diff.token_delta) : "—"}
               <span className="text-sm ml-1.5">tokens</span>
             </p>
           </div>
@@ -177,19 +157,22 @@ export default function RollbackDrawer() {
           <div className="flex gap-2">
             <button
               onClick={handleClose}
-              disabled={confirming}
+              disabled={isPending}
               className="flex-1 py-2 font-sans text-xs border border-border text-subtle rounded hover:text-text hover:border-muted transition-colors duration-150 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               onClick={handleConfirm}
-              disabled={confirming || done}
-              className="flex-1 py-2 font-sans text-xs font-bold bg-amber text-bg rounded hover:opacity-90 transition-opacity duration-150 disabled:opacity-60"
+              disabled={isPending}
+              className="flex-1 py-2 font-sans text-xs font-bold bg-amber text-bg rounded hover:opacity-90 transition-opacity duration-150 disabled:opacity-40"
             >
-              {done ? "Restored ✓" : confirming ? "Restoring…" : "Confirm Rollback"}
+              {isPending ? "Rolling back..." : "Confirm Rollback"}
             </button>
           </div>
+          {isError && (
+            <p className="text-red text-sm font-sans mt-2">Rollback failed. Try again.</p>
+          )}
           <p className="font-sans text-2xs text-subtle leading-relaxed">
             This creates a new snapshot restoring the selected checkpoint state.
             Original history is preserved.
