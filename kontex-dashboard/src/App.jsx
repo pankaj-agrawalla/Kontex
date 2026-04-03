@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import ApiKeyGate from "./components/auth/ApiKeyGate";
 import Sidebar from "./components/layout/Sidebar";
 import Home from "./pages/Home";
 import SessionDetailPage from "./pages/SessionDetailPage";
@@ -27,8 +28,9 @@ function Layout({ children }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <Layout>
-        <Routes>
+      <ApiKeyGate>
+        <Layout>
+          <Routes>
           <Route path="/"            element={<Home />} />
           <Route path="/session/:id" element={<SessionDetailPage />} />
           <Route path="/graph"       element={<TaskGraphPage />} />
@@ -38,8 +40,9 @@ export default function App() {
           <Route path="/timeline"    element={<TimelinePage />} />
           <Route path="/diff"        element={<DiffPage />} />
           <Route path="/usage"       element={<UsagePage />} />
-        </Routes>
-      </Layout>
+          </Routes>
+        </Layout>
+      </ApiKeyGate>
     </BrowserRouter>
   );
 }
