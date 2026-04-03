@@ -6,7 +6,7 @@ export let isRedisReady = false;
 export const redis = new Redis(config.REDIS_URL, {
   lazyConnect: false,
   enableReadyCheck: true,
-  maxRetriesPerRequest: 1,
+  maxRetriesPerRequest: 0,
 });
 
 redis.on("ready", () => {

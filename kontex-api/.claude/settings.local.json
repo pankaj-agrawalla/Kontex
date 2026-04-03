@@ -34,7 +34,12 @@
       "Bash(Get-Process -Id 21840)",
       "Bash(Select-Object MainModule)",
       "Bash(taskkill:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(tasklist /FI \"PID eq 17128\" /FO CSV)",
+      "Bash(kill 17128)",
+      "Bash(dotenv -e .env -- tsx watch src/index.ts)",
+      "Bash(xargs -r -I{} taskkill //F //PID {})",
+      "Bash(true sleep:*)"
     ]
   }
 }

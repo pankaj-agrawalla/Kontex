@@ -1,10 +1,29 @@
 import { beforeAll, afterAll, test, expect } from "vitest"
 import { PrismaClient } from "@prisma/client"
+import Redis from "ioredis"
 
 const BASE   = "http://localhost:3000"
 const API_KEY = "test_key_dev"
 
 const db = new PrismaClient()
+
+// Check if Redis is available (span-worker requires it)
+async function isRedisAvailable(): Promise<boolean> {
+  const r = new Redis(process.env["REDIS_URL"] ?? "redis://localhost:6379", {
+    lazyConnect: true,
+    maxRetriesPerRequest: 0,
+    connectTimeout: 1000,
+  })
+  try {
+    await r.connect()
+    await r.ping()
+    return true
+  } catch {
+    return false
+  } finally {
+    r.disconnect()
+  }
+}
 
 beforeAll(async () => {
   // Ensure the primary test user + key exist — same convention as all other test files
@@ -122,7 +141,7 @@ test("Duplicate spanId is idempotent", async () => {
   expect(count).toBe(1)
 })
 
-test("Linked session → Snapshot created with source openllmetry", async () => {
+test.skipIf(!(await isRedisAvailable()))("Linked session → Snapshot created with source openllmetry", async () => {
   const traceId = "trace-" + Date.now()
 
   const sessRes = await fetch(`${BASE}/v1/sessions`, {

@@ -1,7 +1,14 @@
 import { initTRPC, TRPCError } from "@trpc/server"
 import type { Context } from "./context"
 
-const t = initTRPC.context<Context>().create()
+const t = initTRPC.context<Context>().create({
+  errorFormatter({ shape }) {
+    // Never expose stack traces in API responses
+    const { data, ...rest } = shape
+    const { stack: _stack, ...dataWithoutStack } = data
+    return { ...rest, data: dataWithoutStack }
+  },
+})
 
 export const router          = t.router
 export const publicProcedure = t.procedure

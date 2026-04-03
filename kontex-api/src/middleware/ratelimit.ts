@@ -1,5 +1,5 @@
 import type { Context, Next } from "hono"
-import { redis } from "../redis"
+import { redis, isRedisReady } from "../redis"
 import type { Variables } from "../types/api"
 
 function getHourBucket(): string {
@@ -20,6 +20,7 @@ export async function rateLimit(
 ): Promise<Response | void> {
   const apiKeyId = c.get("apiKeyId")
   if (!apiKeyId) return next()
+  if (!isRedisReady) return next()
 
   const isWritePath =
     c.req.method === "POST" &&

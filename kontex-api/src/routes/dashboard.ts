@@ -209,9 +209,15 @@ app.get("/search", async (c) => {
     )
   }
 
-  const result = await voyage.embed({ input: [q], model: "voyage-code-3" })
-  const queryVector = result.data?.[0]?.embedding
-  if (!queryVector) {
+  let queryVector: number[]
+  try {
+    const result = await voyage.embed({ input: [q], model: "voyage-code-3" })
+    const embedding = result.data?.[0]?.embedding
+    if (!embedding) {
+      return c.json({ error: "upstream_error", message: "Failed to embed query" }, 502)
+    }
+    queryVector = embedding
+  } catch {
     return c.json({ error: "upstream_error", message: "Failed to embed query" }, 502)
   }
 
@@ -221,12 +227,17 @@ app.get("/search", async (c) => {
     must.push({ key: "sessionId", match: { value: sessionId } })
   }
 
-  const results = await qdrant.search(config.QDRANT_COLLECTION, {
-    vector: queryVector,
-    limit,
-    filter: { must },
-    with_payload: true,
-  })
+  let results: Awaited<ReturnType<typeof qdrant.search>>
+  try {
+    results = await qdrant.search(config.QDRANT_COLLECTION, {
+      vector: queryVector,
+      limit,
+      filter: { must },
+      with_payload: true,
+    })
+  } catch {
+    return c.json({ error: "upstream_error", message: "Failed to search snapshots" }, 502)
+  }
 
   return c.json(
     results.map((hit) => {
