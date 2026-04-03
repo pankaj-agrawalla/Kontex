@@ -15,6 +15,10 @@ import mcpRoute from "./routes/mcp";
 import dashboard from "./routes/dashboard";
 import keys from "./routes/keys";
 import ingest from "./routes/ingest";
+import { trpcServer }   from "@hono/trpc-server";
+import sseRouter        from "./routes/sse";
+import { appRouter }    from "./trpc/router";
+import { createContext } from "./trpc/context";
 import { rateLimit } from "./middleware/ratelimit";
 import type { Variables } from "./types/api";
 
@@ -38,6 +42,17 @@ app.route("/v1", snapshots);
 app.route("/v1", dashboard);
 app.route("/v1/keys", keys);
 app.route("/ingest", ingest);
+
+app.route("/sse", sseRouter);
+
+app.use(
+  "/trpc/*",
+  trpcServer({
+    endpoint:      "/trpc",
+    router:        appRouter,
+    createContext: (opts, _c) => createContext(opts) as unknown as Promise<Record<string, unknown>>,
+  })
+);
 
 const port = Number(config.PORT);
 

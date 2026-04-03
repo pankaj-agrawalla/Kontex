@@ -3,6 +3,7 @@ import { db }              from "../db"
 import { redis }           from "../redis"
 import { writeBundle }     from "../services/bundle.service"
 import { mapSpan, buildLabel } from "./span.mapper"
+import { publishEvent }    from "../lib/events"
 import type { FlatSpan }   from "../types/otel"
 import type { ContextBundle } from "../types/bundle"
 
@@ -104,6 +105,18 @@ export async function processSpan(otelSpanId: string): Promise<void> {
     await db.otelSpan.update({
       where: { id: otelSpanId },
       data:  { status: "PROCESSED", snapshotId: snapshot.id },
+    })
+
+    publishEvent({
+      type:      "snapshot.created",
+      sessionId: session.id,
+      data: {
+        snapshotId: snapshot.id,
+        label:      snapshot.label,
+        tokenTotal: snapshot.tokenTotal,
+        source:     snapshot.source,
+        taskId:     snapshot.taskId,
+      },
     })
 
     // Queue for Qdrant embedding (same queue as proxy snapshots)

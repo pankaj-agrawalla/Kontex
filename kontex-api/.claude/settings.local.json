@@ -25,7 +25,16 @@
       "Bash(docker start kontex-redis:*)",
       "Bash(npx dotenv-cli:*)",
       "Bash(npx tsc:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(node:*)",
+      "Bash(xargs grep:*)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":3000\")",
+      "Bash(wmic process:*)",
+      "Bash(Get-Process -Id 21840)",
+      "Bash(Select-Object MainModule)",
+      "Bash(taskkill:*)",
+      "Bash(npm run:*)"
     ]
   }
 }
