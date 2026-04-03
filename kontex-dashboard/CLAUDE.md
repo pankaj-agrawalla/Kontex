@@ -1,18 +1,86 @@
-# CLAUDE.md — Kontex Dashboard UI
+# CLAUDE.md — Kontex Dashboard 2.0
 
-Read this file completely before writing any code. This file provides stable context for every sprint.
-The full build guide with all sprint prompts is in `../kontex-ui-buildguide.md`.
+Read this file completely before writing any code. Sprint prompts are in `../kontex-dashboard-2.0-buildguide.md` — execute them from there.
 
 ---
 
 ## What This UI Is
 
-Kontex Dashboard is the **visual cockpit** for the Kontex API backend. It is a read + control interface that surfaces what agents did — their captured context, task graphs, snapshot timelines, and token usage. It is never a chat interface.
+Kontex Dashboard is the **visual cockpit** for the Kontex API backend. It is a read + control interface that surfaces what agents did — session timelines, snapshot bundles, task graphs, diffs, and usage. It is never a chat interface.
 
 > **The one rule that must never be violated:**
-> There is no chat input box, ever. The only text input in the entire app is the search query field on the Search page. No textarea, no send button, no conversational UI pattern anywhere.
+> There is no chat input box, ever. The only text input is the search query on the Search page. No textarea, no send button, no conversational UI pattern anywhere.
 
-The backend API is the source of truth. This UI consumes it. All data shapes, status values, and endpoint paths in this file match the implemented backend (Sprints 1–8).
+---
+
+## What Is Already Built
+
+The full UI shell exists in React + Tailwind. All 9 pages render with hardcoded mock data from `src/data/mock.js`. Components are complete — do not redesign them.
+
+**Goal of the integration sprints:** Replace every mock import with real tRPC hooks, REST hooks, or an SSE listener. Component markup does not change.
+
+Pages built:
+- `/` — Home (SessionList, StatCards)
+- `/session/:id` — SessionDetail (SnapshotTimeline, ContextInspector)
+- `/graph` — TaskGraph (ReactFlow)
+- `/search` — SearchPage
+- `/settings` — SettingsPage (KeysManager)
+- `/signals` — SignalsPage
+- `/timeline` — TimelinePage
+- `/diff` — DiffPage
+- `/usage` — UsagePage
+
+---
+
+## Backend 2.0 API Surface
+
+Backend runs at `VITE_KONTEX_API_URL` (default `http://localhost:3000`).
+
+### tRPC — all dashboard reads (primary)
+
+All tRPC calls POST to `/trpc/{procedure}` with `Authorization: Bearer {key}`.
+
+```
+trpc/sessions.list           → list sessions (replaces GET /v1/sessions)
+trpc/sessions.byId           → single session (replaces GET /v1/sessions/:id)
+trpc/sessions.create         → create session (replaces POST /v1/sessions)
+trpc/sessions.update         → update session (replaces PATCH /v1/sessions/:id)
+trpc/sessions.tasks          → session task tree (replaces GET /v1/sessions/:id/tasks)
+trpc/snapshots.listBySession → session snapshots (replaces GET /v1/sessions/:id/snapshots)
+trpc/snapshots.byId          → single snapshot (replaces GET /v1/snapshots/:id)
+trpc/snapshots.bundle        → ContextBundle (replaces GET /v1/snapshots/:id/bundle)
+trpc/snapshots.rollback      → trigger rollback (replaces POST /v1/snapshots/:id/rollback)
+trpc/dashboard.graph         → ReactFlow graph (replaces GET /v1/sessions/:id/graph)
+trpc/dashboard.diff          → snapshot diff (replaces GET /v1/sessions/:id/diff?from=&to=)
+trpc/dashboard.timeline      → timeline entries (replaces GET /v1/sessions/:id/snapshots/timeline)
+trpc/dashboard.usage         → usage stats (replaces GET /v1/usage)
+```
+
+### REST — keys + search only (not in tRPC)
+
+```
+POST   /v1/keys              → create API key (key returned once only)
+GET    /v1/keys              → list keys (key value never included)
+DELETE /v1/keys/:id          → revoke key (soft delete, returns 204)
+GET    /v1/search?q=         → semantic search (may return 503 if Qdrant not configured)
+GET    /health               → health check (no auth required)
+```
+
+### SSE — real-time session feed
+
+```
+GET /sse/session/:id/feed    → text/event-stream
+                               Authorization: Bearer {key}
+```
+
+Event payload: `data: {JSON}\n\n`
+
+Event types:
+- `snapshot_created` — new snapshot captured in session
+- `snapshot_enriched` — log-watcher enrichment applied
+- `snapshot_embedded` — Qdrant indexing complete
+
+Open on session detail mount, close on unmount. Each session page gets its own connection.
 
 ---
 
@@ -20,67 +88,44 @@ The backend API is the source of truth. This UI consumes it. All data shapes, st
 
 | Concern | Choice |
 |---|---|
-| Framework | React (Vite) |
-| Routing | react-router-dom v6 |
+| Framework | React 19 + Vite |
+| Routing | React Router v7 |
+| Data fetching | @tanstack/react-query v5 |
+| RPC client | @trpc/client + @trpc/react-query |
 | State | Zustand |
-| Data fetching | @tanstack/react-query |
 | Styling | Tailwind CSS |
-| Graph | ReactFlow |
+| Visualization | ReactFlow |
 | Icons | lucide-react |
-| Time formatting | date-fns |
-| Fonts | IBM Plex Mono (data) · DM Sans (labels) |
+| Time | date-fns |
+| Language | JavaScript (JSX) — no TypeScript |
 
----
-
-## Design Rules
-
-Apply in every component, every sprint.
-
-**Colors — strict usage:**
+Install tRPC client packages:
+```bash
+npm install @trpc/client @trpc/react-query @trpc/server
 ```
-#0A0A0B  bg          Page background
-#111113  surface     Panels, sidebars, table rows (hover)
-#1E1E22  border      All borders. Use borders, not shadows.
-#3A3A42  muted       Muted borders, skeleton loading
-#E8E8ED  text        Primary text
-#6B6B7A  subtle      Secondary labels, timestamps, IDs
-#00E5CC  teal        ACTIVE status · selected states · links · confirm actions
-#F5A623  amber       PAUSED status · rollback/destructive · token deltas · warnings
-#FF4D4D  red         FAILED status · errors · revoke confirmations
-#2ECC71  green       Success indicators
-```
-
-**Typography:**
-- `font-mono` (IBM Plex Mono): all token counts, timestamps, file paths, tool names, snapshot IDs, API key values, numeric data
-- `font-sans` (DM Sans): all labels, headings, nav items, button text, descriptions
-
-**Layout:**
-- No shadows (except rollback drawer backdrop)
-- No gradients on backgrounds
-- No rounded cards with shadows — borders only
-- Dense information, generous micro-spacing
-
-**Status values from API are always UPPERCASE strings:**
-- Sessions: `ACTIVE` · `PAUSED` · `COMPLETED`
-- Tasks: `PENDING` · `ACTIVE` · `COMPLETED` · `FAILED`
-- Snapshot source: `proxy` · `log_watcher` · `mcp` (lowercase)
 
 ---
 
 ## Project Structure
 
-Fixed. Do not create files outside this structure without explicit instruction.
+Fixed. Do not add files outside this structure without explicit instruction.
 
 ```
 kontex-dashboard/
 ├── src/
+│   ├── api/
+│   │   ├── client.js          ← apiFetch — REST base fetcher with auth
+│   │   └── trpc.js            ← tRPC client + React Query integration
 │   ├── components/
+│   │   ├── auth/
+│   │   │   └── ApiKeyGate.jsx ← blocks app until key is stored
 │   │   ├── layout/
 │   │   │   ├── Sidebar.jsx
 │   │   │   └── TopBar.jsx
 │   │   ├── sessions/
 │   │   │   ├── SessionList.jsx
 │   │   │   ├── SessionRow.jsx
+│   │   │   ├── StatCards.jsx
 │   │   │   └── StatusBadge.jsx
 │   │   ├── detail/
 │   │   │   ├── SessionDetail.jsx
@@ -99,29 +144,112 @@ kontex-dashboard/
 │   │   └── shared/
 │   │       ├── TokenPill.jsx
 │   │       └── EmptyState.jsx
+│   ├── hooks/
+│   │   ├── useTrpc.js         ← tRPC React Query hooks (all dashboard reads)
+│   │   └── useKontexAPI.js    ← REST hooks (keys + search only)
+│   ├── sse/
+│   │   └── useSessionFeed.js  ← SSE hook for /sse/session/:id/feed
+│   ├── utils/
+│   │   └── signals.js         ← client-side signal detection from timeline data
 │   ├── store/
 │   │   ├── sessions.js
 │   │   └── ui.js
 │   ├── data/
-│   │   └── mock.js
-│   ├── hooks/
-│   │   └── useKontexAPI.js
+│   │   └── mock.js            ← keep as reference, never import in hooks
 │   ├── pages/
 │   │   ├── Home.jsx
 │   │   ├── SessionDetailPage.jsx
 │   │   ├── TaskGraphPage.jsx
 │   │   ├── SearchPage.jsx
-│   │   └── SettingsPage.jsx
+│   │   ├── SettingsPage.jsx
+│   │   ├── SignalsPage.jsx
+│   │   ├── TimelinePage.jsx
+│   │   ├── DiffPage.jsx
+│   │   └── UsagePage.jsx
 │   ├── App.jsx
 │   └── main.jsx
 ├── Dockerfile
 ├── nginx.conf
-├── docker-compose.yml
 ├── .env
 ├── .env.example
+├── package.json
 ├── tailwind.config.js
-├── vite.config.js
-└── package.json
+└── vite.config.js
+```
+
+---
+
+## Design Rules
+
+Apply in every component, every sprint.
+
+**Colors — strict usage:**
+```
+#0A0A0B  bg          Page background
+#111113  surface     Panels, sidebars, table row hover
+#1E1E22  border      All borders — use borders, not shadows
+#3A3A42  muted       Muted borders, skeleton loading
+#E8E8ED  text        Primary text
+#6B6B7A  subtle      Secondary labels, timestamps, IDs
+#00E5CC  teal        ACTIVE status · selected states · confirm actions
+#F5A623  amber       PAUSED status · rollback/destructive · warnings
+#FF4D4D  red         FAILED status · errors · revoke confirmations
+#2ECC71  green       Success indicators
+```
+
+**Typography:**
+- `font-mono` (IBM Plex Mono): token counts, timestamps, file paths, tool names, snapshot IDs, API key values, all numeric data
+- `font-sans` (DM Sans): labels, headings, nav items, button text, descriptions
+
+**Layout:** No shadows (except rollback drawer backdrop). No gradients on backgrounds. Borders over shadows. Dense information, generous micro-spacing.
+
+**Status values from API are always UPPERCASE:**
+- Sessions: `ACTIVE` · `PAUSED` · `COMPLETED`
+- Tasks: `PENDING` · `ACTIVE` · `COMPLETED` · `FAILED`
+- Snapshot source: `proxy` · `mcp` · `openllmetry` (lowercase)
+
+---
+
+## Coding Standards
+
+**No TypeScript.** Plain JSX throughout. Do not add `.ts` or `.tsx` files.
+
+**No direct fetch in components.** All data goes through `useTrpc.js` (tRPC reads), `useKontexAPI.js` (REST keys + search), or `useSessionFeed.js` (SSE). Components only call hooks.
+
+**No mock imports in wired components.** Once a component is wired, its mock import is removed. `mock.js` itself stays as a reference — never import it from hook files.
+
+**tRPC for all reads.** Use `useTrpc.js` for every procedure listed in the tRPC surface above. Use `apiFetch` REST only for `/v1/keys/*` and `/v1/search`.
+
+**SSE lifecycle.** One connection per session page, managed entirely by `useSessionFeed.js`. Open on mount, close on unmount. Never share a connection across components.
+
+**Auth.** API key stored in `localStorage` as `kontex_api_key`. Injected as `Authorization: Bearer {key}` on every request — REST, tRPC, and SSE. Never log the key value.
+
+**401 handling.** Clear `kontex_api_key` from localStorage and reload — `ApiKeyGate` reappears.
+
+**Loading states.** Use React Query's `isLoading` / `isPending`. Skeleton rows or `—` placeholder. Never a blank flash.
+
+**Error states.** Inline `text-red text-sm font-sans` messages. No crash screens except 401.
+
+**Signals are client-side.** There is no `/v1/signals` endpoint. Signals are computed from timeline data in `src/utils/signals.js`. Logic:
+- `tokenDelta > 5000` relative to rolling window → `context_bloat`
+- Same tool called 3+ times in window → `retry_storm`
+- `tokenTotal > 80,000` → `context_limit_proximity`
+
+**Rollback is append-only.** After `snapshots.rollback` succeeds, append the new snapshot to the timeline — never remove existing entries. The timeline always grows forward.
+
+**React Query key conventions:**
+```js
+["sessions", status]              // list (status may be null)
+["session", sessionId]            // single
+["timeline", sessionId]           // timeline
+["graph", sessionId]              // graph
+["diff", sessionId, from, to]     // diff
+["snapshots", sessionId]          // snapshots list
+["snapshot", snapshotId]          // single snapshot
+["bundle", snapshotId]            // ContextBundle
+["usage"]                         // usage stats
+["search", q, sessionId]          // search
+["keys"]                          // API keys list
 ```
 
 ---
@@ -129,91 +257,43 @@ kontex-dashboard/
 ## Environment Variables
 
 ```bash
-VITE_KONTEX_API_URL=http://localhost:3000   # local dev
+VITE_KONTEX_API_URL=http://localhost:3000
 ```
 
-> `VITE_*` variables are baked in at Vite build time. They must be passed as Docker build
-> args — runtime environment variables have no effect on the built static files.
+Only one env var. API keys are never in `.env` — stored in localStorage at runtime.
 
-**Deployment is via Docker.** The project root must contain:
-- `Dockerfile` — multi-stage: `node:20-alpine` build → `nginx:alpine` serve
-- `nginx.conf` — SPA fallback (`try_files $uri $uri/ /index.html`) + asset caching
-- `docker-compose.yml` — builds with `VITE_KONTEX_API_URL` as a build arg, exposes port 8080
-
+`VITE_*` vars are baked at Vite build time. Pass as Docker build args for production:
 ```bash
-# Local run
-docker compose up --build
-
-# Production
-VITE_KONTEX_API_URL=https://your-kontex-api.example.com docker compose up --build -d
+docker build --build-arg VITE_KONTEX_API_URL=https://your-api.railway.app .
 ```
-
-Full Dockerfile, nginx.conf, and docker-compose.yml are in `../kontex-ui-buildguide.md` Section 9.
 
 ---
 
-## API Contract
+## Auth Flow
 
-The backend base URL is `VITE_KONTEX_API_URL`. All routes are under `/v1/`.
+1. App loads → `ApiKeyGate` checks `localStorage.getItem("kontex_api_key")`
+2. Missing → full-screen gate, user enters `kontex_xxxxx` key
+3. Gate hits `GET /health` to verify backend reachable
+4. Success → key saved, gate dismisses
+5. Every subsequent request injects `Authorization: Bearer {key}`
+6. 401 received → clear key, reload → gate reappears
 
-**Authentication:** `Authorization: Bearer {apiKey}` header on every request.
-The key is stored in `localStorage` as `kontex_api_key` (format: `kontex_xxxx...`).
+---
 
-**All errors follow this shape:**
-```json
-{ "error": "snake_case_code", "message": "Human readable", "details": {} }
-```
+## ContextBundle Shape
 
-**Endpoint → response shape quick reference:**
-
-| Endpoint | Response shape |
-|---|---|
-| `GET /v1/sessions` | `{ data: Session[], nextCursor }` |
-| `GET /v1/sessions/:id` | `Session + taskCount` |
-| `GET /v1/sessions/:id/snapshots/timeline` | `TimelineEntry[]` |
-| `GET /v1/sessions/:id/graph` | `{ nodes, edges }` (ReactFlow-ready) |
-| `GET /v1/sessions/:id/diff?from=&to=` | `{ added, removed, token_delta }` |
-| `GET /v1/snapshots/:id` | `Snapshot + bundle (ContextBundle)` |
-| `POST /v1/snapshots/:id/rollback` | `{ rollback_snapshot_id, source_snapshot_id, label, captured_at, token_total, bundle }` |
-| `GET /v1/usage` | `{ total_sessions, active_sessions, total_snapshots, total_tokens_stored, snapshots_this_month, tokens_this_month }` |
-| `GET /v1/search?q=` | `SearchResult[]` or `503 { error: "search_unavailable" }` |
-| `GET /v1/keys` | `ApiKey[]` — key value NEVER in list |
-| `POST /v1/keys` | `{ id, key, label, createdAt }` — key shown here only |
-| `DELETE /v1/keys/:id` | `204` |
-
-**ContextBundle shape** (returned inside snapshot responses):
 ```js
 {
   snapshotId, taskId, sessionId, capturedAt, model, tokenTotal,
-  source,      // "proxy" | "log_watcher" | "mcp"
-  enriched,    // true after log watcher enrichment
+  source,      // "proxy" | "mcp" | "openllmetry"
+  enriched,    // bool
   files: [{ path, content?, contentHash, tokenCount }],
   toolCalls: [{ tool, input, output, status, timestamp }],
   messages: [{ role, content, timestamp? }],
-  reasoning?,  // string — agent's internal reasoning
+  reasoning?,  // string
   logEvents: [{ type, timestamp, data }]
 }
 ```
-
-**Rollback is append-only.** `POST /v1/snapshots/:id/rollback` creates a new snapshot — it never deletes existing ones. After a successful rollback, append the new snapshot to the timeline; do not remove any existing entries.
-
----
-
-## Coding Standards
-
-Apply in every file, every sprint.
-
-**Mock data:** All mock data in `src/data/mock.js` must match real API shapes exactly — status values uppercase, field names matching the API (e.g. `tokenTotal` not `tokenCost`, `updatedAt` not `lastActive`). This ensures swapping mocks for real hooks requires no component changes.
-
-**React Query:** All API calls go through hooks in `useKontexAPI.js`. Components never call `fetch` directly.
-
-**Zustand:** UI state (drawer open/closed, active snapshot, sidebar expanded) lives in Zustand stores. Server state (sessions, snapshots) lives in React Query cache.
-
-**No prop drilling:** Use Zustand for shared UI state. Pass only what a component directly renders.
-
-**Error states:** Every data-fetching component handles loading, error, and empty states. Use `EmptyState` for empty. Show a subtle inline error message for fetch failures — no crash screens.
-
-**No inline styles.** Tailwind utility classes only. Custom values only when Tailwind cannot express them.
 
 ---
 
@@ -221,149 +301,27 @@ Apply in every file, every sprint.
 
 | Sprint | Focus | Key deliverables |
 |---|---|---|
-| 1 | Shell + Session List | Layout, routing, session table with filters |
-| 2 | Timeline + Inspector | Snapshot timeline, context bundle viewer |
-| 3 | Rollback | Diff display, rollback confirmation, append-only update |
-| 4 | Task Graph | ReactFlow graph from `/graph` endpoint |
-| 5 | Search + Keys + Usage | Search page, API key management, usage stats |
-| 6 | Wiring + Polish | Zustand stores, empty states, final polish |
+| 1 | Foundation | tRPC client, SSE manager, ApiKeyGate, env, QueryClient |
+| 2 | Sessions + Home | tRPC sessions + usage hooks, wire Home, StatCards, Sidebar |
+| 3 | Session Detail + SSE | tRPC snapshots hooks, SSE feed, wire SessionDetail |
+| 4 | Rollback + Diff | tRPC rollback + diff, wire RollbackDrawer + DiffPage |
+| 5 | Task Graph | tRPC dashboard.graph, wire TaskGraph |
+| 6 | Search + Keys | REST search + keys hooks, wire SearchPage + KeysManager |
+| 7 | Timeline + Signals + Usage | tRPC timeline + usage, client-side signals, wire remaining pages |
+| 8 | Error handling + Deploy | Error boundaries, Docker, nginx, final verification |
 
-Complete all done criteria for a sprint before starting the next.
-Update the **Current Sprint** section below at the start of each new sprint.
+Complete all done criteria before moving to the next sprint.
 
 ---
 
-## How to Use This File
+## How to Use
 
 ```bash
 cd kontex-dashboard
 # CLAUDE.md is here — Claude Code reads it automatically
 
-# Open ../kontex-ui-buildguide.md for the full prompt list
-# Navigate to the current sprint section
-# Execute prompts in Claude Code in order
+# Open ../kontex-dashboard-2.0-buildguide.md
+# Navigate to the current sprint and execute prompts in order
 
-# Before starting a new sprint:
-# 1. Update the "Current Sprint" section below
-# 2. Paste in the sprint goal and prompts from the build guide
-# 3. Check off done criteria as you go
+# When resuming: "Read CLAUDE.md. We are on Sprint 3, Prompt 3.2. Continue."
 ```
-
----
-
-## Integration Phase
-
-This section governs API wiring. Read it alongside `../kontex-wiring-buildguide.md`, which contains the sprint-by-sprint prompts for connecting every component to the real backend.
-
-**Hook conventions:**
-- All data-fetching hooks live in `src/hooks/useKontexAPI.js`
-- Every hook uses `@tanstack/react-query` (`useQuery` or `useMutation`)
-- No component calls `fetch` or `axios` directly — hooks only
-
-**API client:**
-- Base fetcher is in `src/api/client.js`
-- Reads `VITE_KONTEX_API_URL` from `import.meta.env`
-- Reads API key from `localStorage.getItem("kontex_api_key")`
-- Sends `Authorization: Bearer {key}` on every request
-- Throws `ApiError` (with `.status` and `.code`) on non-2xx responses
-
-**Auth gate:**
-- `src/components/auth/ApiKeyGate.jsx` wraps the entire app in `main.jsx`
-- If `localStorage.getItem("kontex_api_key")` is falsy → renders a full-screen key entry form
-- On submit → stores key, dismisses gate; no page reload needed
-- 401 from any API call → clears key, gate reappears (handled in `apiFetch`)
-
-**Mock data:**
-- Mock imports are allowed **only** inside `src/data/mock.js`
-- Hook files in `src/hooks/` must never import from `src/data/mock.js`
-- Once a hook is wired, its corresponding component must not fall back to mock data
-
-**Signals:**
-- There is no `/v1/signals` backend endpoint
-- Signals are computed **client-side** in `src/utils/signals.js` from timeline data
-- Logic: `tokenDelta > 5000` relative to window → `context_bloat`; same tool called 3+ times → `retry_storm`; `tokenTotal > 80000` → `context_limit_proximity`
-- `SignalsPage` and `TimelinePage` both derive signal entries using this utility
-
-**Docker / environment:**
-- `VITE_*` vars are baked in at Vite build time — **not** available at runtime
-- Must be passed as Docker build args: `--build-arg VITE_KONTEX_API_URL=https://...`
-- Runtime env vars in `docker-compose.yml` have no effect on the built static bundle
-
-**Integration sprint map:**
-
-| Sprint | Focus | Key deliverables |
-|---|---|---|
-| W1 | Foundation | `.env.example`, QueryClientProvider, `src/api/client.js`, `ApiKeyGate` |
-| W2 | Sessions + Home | `useSessions`, `useSession`, `useUsage`; wire `SessionList`, `StatCards`, Sidebar |
-| W3 | Session Detail | `useTimeline`, `useSnapshot`; wire `SnapshotTimeline`, `ContextInspector` |
-| W4 | Rollback + Diff | `useRollback`, `useDiff`; wire `RollbackDrawer`, `DiffPage` |
-| W5 | Task Graph | `useGraph`; wire `TaskGraph`, `TaskGraphPage` |
-| W6 | Search + Keys | `useSearch`, `useKeys`, `useCreateKey`, `useDeleteKey`; wire `SearchPage`, `KeysManager` |
-| W7 | Signals + Timeline + Usage | `src/utils/signals.js`; wire `TimelinePage`, `SignalsPage`, `UsagePage` |
-| W8 | Error handling + Deploy | `InlineError`, `Dockerfile`, `nginx.conf`, `docker-compose.yml`, final verification |
-
----
-
-### Sprint 6 — Wiring + Polish
-
-**Prompt 6.1 — Zustand store**
-```
-Set up Zustand stores:
-
-src/store/sessions.js:
-  - State: sessions (from mockSessionsResponse.data), activeSessionId, activeSnapshotId
-  - Actions: 
-    setSessions(sessions)
-    setActiveSession(id)
-    setActiveSnapshot(id)
-    addSnapshot(snapshot) — appends to session snapshot list (for post-rollback)
-    NOTE: rollback NEVER removes existing snapshots — it only adds
-
-src/store/ui.js:
-  - State: rollbackDrawerOpen, sidebarExpanded, searchQuery
-  - Actions: openRollback, closeRollback, toggleSidebar, setSearchQuery
-
-Wire the RollbackDrawer open/close to the ui store.
-Wire SnapshotTimeline selection to sessions store activeSnapshotId.
-Wire ContextInspector to read from sessions store based on activeSnapshotId.
-```
-
-**Prompt 6.2 — Empty states + loading**
-```
-Build src/components/shared/EmptyState.jsx:
-  Props: icon (lucide component), title, subtitle
-  Style: centered, icon in muted color at 32px, title DM Sans medium, subtitle subtle small
-  Use it in:
-  - SessionList when no sessions match the active filter
-  - ContextInspector when no snapshot is selected
-    (title: "Select a checkpoint", subtitle: "Choose a snapshot from the timeline to inspect its context state")
-  - TaskGraph if nodes is empty
-  - SearchResults when no results returned
-  - KeysManager when no keys exist
-
-Add skeleton loading rows to SessionList:
-  - 3 rows, animated pulse (Tailwind animate-pulse)
-  - Show for 1.2 seconds on mount, then replace with real data
-  - Skeleton color: #1E1E22
-```
-
-**Prompt 6.3 — Final polish pass**
-```
-Final polish pass across all components:
-
-1. Ensure IBM Plex Mono is applied to: all token counts, timestamps, file paths, tool names,
-   status codes, snapshot IDs, API key values
-2. Ensure DM Sans is applied to: all labels, headings, nav items, button text
-3. Check all borders are using #1E1E22 — no box-shadows except the rollback drawer backdrop
-4. Status values are UPPERCASE strings from the API — ensure StatusBadge handles
-   "ACTIVE", "PAUSED", "COMPLETED", "PENDING", "FAILED"
-5. Ensure teal (#00E5CC) is used only for: ACTIVE status, selected states, links, confirm actions
-6. Ensure amber (#F5A623) is used only for: PAUSED status, rollback/destructive actions, token deltas
-7. Ensure red (#FF4D4D) is used only for: FAILED status, error states, revoke confirmations
-8. Verify no component contains: textarea for chat, send button, or any conversational UI pattern
-   (the search input on SearchPage is the only text input in the app)
-9. Add a subtle page transition on route change: opacity 0→1 over 150ms using CSS transition
-10. Verify the sidebar collapses/expands smoothly on hover with CSS transition on width
-```
-
----
