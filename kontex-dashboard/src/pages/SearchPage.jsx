@@ -1,28 +1,19 @@
 import { useState } from "react";
 import { Search } from "lucide-react";
-import { mockSearchResults, mockSessionsResponse } from "../data/mock";
+import { useSearch } from "../hooks/useKontexAPI";
 import SearchResults, { SearchEmpty, SearchUnavailable } from "../components/search/SearchResults";
 
-const SESSIONS = mockSessionsResponse.data;
-
 export default function SearchPage() {
-  const [query, setQuery]               = useState("");
-  const [sessionFilter, setSessionFilter] = useState("all");
-  const [results, setResults]           = useState(null);   // null = no search yet
-  const [unavailable, setUnavailable]   = useState(false);
+  const [inputValue, setInputValue]       = useState("");
+  const [q, setQ]                         = useState("");
+  const [sessionFilter, setSessionFilter] = useState(null);
+
+  const { data: results, isLoading, isError, error } = useSearch(q, sessionFilter);
 
   function handleSearch(e) {
     e.preventDefault();
-    if (!query.trim()) return;
-
-    // Mock: filter by sessionId if a filter is active
-    const filtered =
-      sessionFilter === "all"
-        ? mockSearchResults
-        : mockSearchResults.filter((r) => r.sessionId === sessionFilter);
-
-    setUnavailable(false);
-    setResults(filtered);
+    if (!inputValue.trim()) return;
+    setQ(inputValue.trim());
   }
 
   return (
@@ -37,30 +28,16 @@ export default function SearchPage() {
             />
             <input
               type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
               placeholder="Search snapshots by label, tool, file path..."
               className="w-full bg-surface border border-border rounded pl-8 pr-3 py-2 font-sans text-sm text-text placeholder:text-subtle focus:outline-none focus:border-teal transition-colors duration-150"
             />
           </div>
 
-          {/* Session filter */}
-          <select
-            value={sessionFilter}
-            onChange={(e) => setSessionFilter(e.target.value)}
-            className="bg-surface border border-border rounded px-3 py-2 font-sans text-sm text-text focus:outline-none focus:border-teal transition-colors duration-150 cursor-pointer"
-          >
-            <option value="all">All sessions</option>
-            {SESSIONS.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-
           <button
             type="submit"
-            disabled={!query.trim()}
+            disabled={!inputValue.trim()}
             className="px-4 py-2 bg-teal text-bg font-sans font-medium text-sm rounded disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-90 transition-opacity duration-150"
           >
             Search
@@ -70,15 +47,21 @@ export default function SearchPage() {
 
       {/* Results area */}
       <div className="flex-1 overflow-auto">
-        {unavailable ? (
+        {isError && error?.status === 503 ? (
           <SearchUnavailable />
-        ) : results === null ? (
+        ) : isError ? (
+          <p className="font-sans text-sm text-red px-6 py-4">Search failed. Try again.</p>
+        ) : !q ? (
           <div className="px-6 py-12 text-center">
             <p className="font-sans text-sm text-subtle">
               Enter a query to search across all snapshots
             </p>
           </div>
-        ) : results.length === 0 ? (
+        ) : isLoading ? (
+          <div className="px-6 py-12 text-center">
+            <p className="font-sans text-sm text-subtle">Searching…</p>
+          </div>
+        ) : !results?.length ? (
           <SearchEmpty />
         ) : (
           <>
