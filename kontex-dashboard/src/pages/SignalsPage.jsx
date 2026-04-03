@@ -1,6 +1,10 @@
+import { useLocation } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, AlertOctagon } from "lucide-react";
-import { mockSignals, mockTimelineFull } from "../data/mock";
+import { AlertTriangle, AlertOctagon, CheckCircle } from "lucide-react";
+import { useTimeline } from "../hooks/useTrpc";
+import { useUiStore } from "../store/ui";
+import { computeSignals } from "../utils/signals";
+import EmptyState from "../components/shared/EmptyState";
 
 const SEVERITY_CONFIG = {
   CRITICAL: {
@@ -22,7 +26,7 @@ const SEVERITY_CONFIG = {
 };
 
 function SignalItem({ signal }) {
-  const cfg = SEVERITY_CONFIG[signal.severity] ?? SEVERITY_CONFIG.WARNING;
+  const cfg = SEVERITY_CONFIG[signal.severity.toUpperCase()] ?? SEVERITY_CONFIG.WARNING;
   const Icon = cfg.icon;
 
   return (
@@ -32,7 +36,7 @@ function SignalItem({ signal }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <span className="font-sans font-medium text-sm text-text">{signal.title}</span>
+          <span className="font-sans font-medium text-sm text-text">{signal.label}</span>
           <span className={`font-mono text-2xs border rounded px-1.5 py-px ${cfg.badge}`}>
             {cfg.label}
           </span>
@@ -40,9 +44,8 @@ function SignalItem({ signal }) {
         <p className="font-mono text-2xs text-muted mb-1">
           {signal.snapshotId} · {formatDistanceToNow(new Date(signal.createdAt), { addSuffix: true })}
         </p>
-        <p className="font-sans text-xs text-subtle leading-relaxed mb-2">{signal.description}</p>
         <span className="font-mono text-2xs text-subtle bg-surface border border-border rounded px-2 py-1 inline-block">
-          {signal.data}
+          {signal.detail}
         </span>
       </div>
     </div>
@@ -90,17 +93,25 @@ function MiniTimelineItem({ item, isLast }) {
 }
 
 export default function SignalsPage() {
-  const criticalCount = mockSignals.filter((s) => s.severity === "CRITICAL").length;
-  const warningCount  = mockSignals.filter((s) => s.severity === "WARNING").length;
+  const location = useLocation();
+  const sessionId = useUiStore((s) => s.activeSessionId) ?? new URLSearchParams(location.search).get("sessionId");
+  const { data: timeline = [] } = useTimeline(sessionId);
+  const signals = computeSignals(timeline);
+
+  const criticalCount = signals.filter((s) => s.severity === "critical").length;
+  const warningCount  = signals.filter((s) => s.severity === "warning").length;
+
+  if (signals.length === 0) return (
+    <EmptyState icon={CheckCircle} title="No signals" subtitle="No anomalies detected in this session." />
+  );
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-3 px-6 py-3 border-b border-border shrink-0">
         <h1 className="font-sans font-medium text-base text-text">Signals</h1>
-        <span className="font-mono text-2xs text-subtle">prod-code-refactor-v2</span>
         <span className="ml-auto font-mono text-2xs text-muted">
-          {mockSignals.length} total · sorted by severity
+          {signals.length} total · sorted by severity
         </span>
       </div>
 
@@ -123,7 +134,7 @@ export default function SignalsPage() {
               </span>
             )}
           </div>
-          {mockSignals.map((s) => (
+          {signals.map((s) => (
             <SignalItem key={s.id} signal={s} />
           ))}
         </div>
@@ -136,11 +147,11 @@ export default function SignalsPage() {
             </p>
           </div>
           <div className="px-4 py-4">
-            {mockTimelineFull.map((item, i) => (
+            {timeline.map((item, i) => (
               <MiniTimelineItem
                 key={item.id}
                 item={item}
-                isLast={i === mockTimelineFull.length - 1}
+                isLast={i === timeline.length - 1}
               />
             ))}
           </div>

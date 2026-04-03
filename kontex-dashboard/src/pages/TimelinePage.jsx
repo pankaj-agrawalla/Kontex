@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { mockTimelineFull } from "../data/mock";
+import { useTimeline } from "../hooks/useTrpc";
+import { useUiStore } from "../store/ui";
 
 const TABS = ["All", "Signals only", "MCP checkpoints"];
 
@@ -80,8 +82,11 @@ function TimelineItem({ item, isLast }) {
 
 export default function TimelinePage() {
   const [activeTab, setActiveTab] = useState("All");
+  const location = useLocation();
+  const sessionId = useUiStore((s) => s.activeSessionId) ?? new URLSearchParams(location.search).get("sessionId");
+  const { data: timeline = [], isLoading } = useTimeline(sessionId);
 
-  const filtered = mockTimelineFull.filter((item) => {
+  const filtered = timeline.filter((item) => {
     if (activeTab === "Signals only")      return item.type === "signal";
     if (activeTab === "MCP checkpoints")   return item.type === "mcp";
     return true;
@@ -116,7 +121,9 @@ export default function TimelinePage() {
       {/* Timeline */}
       <div className="flex-1 overflow-auto px-6 py-6">
         <div className="max-w-2xl">
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <p className="font-sans text-sm text-subtle text-center py-12">Loading…</p>
+          ) : filtered.length === 0 ? (
             <p className="font-sans text-sm text-subtle text-center py-12">
               No entries match this filter.
             </p>

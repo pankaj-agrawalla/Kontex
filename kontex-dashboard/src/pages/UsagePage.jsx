@@ -1,13 +1,10 @@
-import { mockUsage, mockUsageBySession } from "../data/mock";
+import { useUsage } from "../hooks/useTrpc";
 
 function formatTokens(n) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000)     return (n / 1_000).toFixed(0) + "K";
   return String(n);
 }
-
-const maxTokens    = Math.max(...mockUsageBySession.map((s) => s.tokens));
-const maxSnapshots = Math.max(...mockUsageBySession.map((s) => s.snapshots));
 
 const BAR_COLORS = ["bg-teal", "bg-[#63B3ED]", "bg-[#B794F4]", "bg-amber"];
 
@@ -37,6 +34,12 @@ function UsageCard({ title, children }) {
 }
 
 export default function UsagePage() {
+  const { data: usage, isLoading } = useUsage();
+
+  const bySession = usage?.by_session ?? [];
+  const maxTokens    = bySession.length > 0 ? Math.max(...bySession.map((s) => s.tokens))    : 0;
+  const maxSnapshots = bySession.length > 0 ? Math.max(...bySession.map((s) => s.snapshots)) : 0;
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -48,9 +51,9 @@ export default function UsagePage() {
         {/* Top stat row */}
         <div className="grid grid-cols-3 gap-3 mb-5">
           {[
-            { label: "Total Snapshots",     value: mockUsage.total_snapshots.toLocaleString() },
-            { label: "Tokens This Month",   value: formatTokens(mockUsage.tokens_this_month)  },
-            { label: "Snapshots This Month",value: mockUsage.snapshots_this_month.toLocaleString() },
+            { label: "Total Snapshots",      value: isLoading ? "—" : (usage?.total_snapshots ?? 0).toLocaleString() },
+            { label: "Tokens This Month",    value: isLoading ? "—" : formatTokens(usage?.tokens_this_month ?? 0)    },
+            { label: "Snapshots This Month", value: isLoading ? "—" : (usage?.snapshots_this_month ?? 0).toLocaleString() },
           ].map((s) => (
             <div key={s.label} className="bg-surface border border-border rounded-md px-4 py-3">
               <p className="font-mono text-2xs text-muted uppercase tracking-widest mb-1">{s.label}</p>
@@ -60,33 +63,35 @@ export default function UsagePage() {
         </div>
 
         {/* Bar chart cards */}
-        <div className="grid grid-cols-2 gap-4">
-          <UsageCard title="Token usage by session">
-            {mockUsageBySession.map((s, i) => (
-              <BarRow
-                key={s.sessionId}
-                label={s.name}
-                value={s.tokens}
-                max={maxTokens}
-                formattedValue={formatTokens(s.tokens)}
-                colorClass={BAR_COLORS[i % BAR_COLORS.length]}
-              />
-            ))}
-          </UsageCard>
+        {bySession.length > 0 && (
+          <div className="grid grid-cols-2 gap-4">
+            <UsageCard title="Token usage by session">
+              {bySession.map((s, i) => (
+                <BarRow
+                  key={s.sessionId}
+                  label={s.name}
+                  value={s.tokens}
+                  max={maxTokens}
+                  formattedValue={formatTokens(s.tokens)}
+                  colorClass={BAR_COLORS[i % BAR_COLORS.length]}
+                />
+              ))}
+            </UsageCard>
 
-          <UsageCard title="Snapshots by session">
-            {mockUsageBySession.map((s, i) => (
-              <BarRow
-                key={s.sessionId}
-                label={s.name}
-                value={s.snapshots}
-                max={maxSnapshots}
-                formattedValue={s.snapshots.toLocaleString()}
-                colorClass={BAR_COLORS[i % BAR_COLORS.length]}
-              />
-            ))}
-          </UsageCard>
-        </div>
+            <UsageCard title="Snapshots by session">
+              {bySession.map((s, i) => (
+                <BarRow
+                  key={s.sessionId}
+                  label={s.name}
+                  value={s.snapshots}
+                  max={maxSnapshots}
+                  formattedValue={s.snapshots.toLocaleString()}
+                  colorClass={BAR_COLORS[i % BAR_COLORS.length]}
+                />
+              ))}
+            </UsageCard>
+          </div>
+        )}
       </div>
     </div>
   );
