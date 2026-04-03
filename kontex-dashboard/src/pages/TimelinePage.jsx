@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { useTimeline } from "../hooks/useTrpc";
-import { useUiStore } from "../store/ui";
+import { useSessionsStore } from "../store/sessions";
 
 const TABS = ["All", "Signals only", "MCP checkpoints"];
 
@@ -83,8 +83,8 @@ function TimelineItem({ item, isLast }) {
 export default function TimelinePage() {
   const [activeTab, setActiveTab] = useState("All");
   const location = useLocation();
-  const sessionId = useUiStore((s) => s.activeSessionId) ?? new URLSearchParams(location.search).get("sessionId");
-  const { data: timeline = [], isLoading } = useTimeline(sessionId);
+  const sessionId = useSessionsStore((s) => s.activeSessionId) ?? new URLSearchParams(location.search).get("sessionId");
+  const { data: timeline = [], isLoading, isError } = useTimeline(sessionId);
 
   const filtered = timeline.filter((item) => {
     if (activeTab === "Signals only")      return item.type === "signal";
@@ -123,6 +123,8 @@ export default function TimelinePage() {
         <div className="max-w-2xl">
           {isLoading ? (
             <p className="font-sans text-sm text-subtle text-center py-12">Loading…</p>
+          ) : isError ? (
+            <p className="font-sans text-sm text-red py-4">Failed to load data. Check your connection.</p>
           ) : filtered.length === 0 ? (
             <p className="font-sans text-sm text-subtle text-center py-12">
               No entries match this filter.

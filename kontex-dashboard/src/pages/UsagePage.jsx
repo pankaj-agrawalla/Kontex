@@ -34,7 +34,7 @@ function UsageCard({ title, children }) {
 }
 
 export default function UsagePage() {
-  const { data: usage, isLoading } = useUsage();
+  const { data: usage, isLoading, isError } = useUsage();
 
   const bySession = usage?.by_session ?? [];
   const maxTokens    = bySession.length > 0 ? Math.max(...bySession.map((s) => s.tokens))    : 0;
@@ -48,6 +48,11 @@ export default function UsagePage() {
       </div>
 
       <div className="flex-1 overflow-auto px-6 py-5">
+        {/* Error */}
+        {isError && (
+          <p className="font-sans text-sm text-red mb-4">Failed to load data. Check your connection.</p>
+        )}
+
         {/* Top stat row */}
         <div className="grid grid-cols-3 gap-3 mb-5">
           {[

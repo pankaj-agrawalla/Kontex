@@ -2,21 +2,7 @@ import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Copy, Check, KeyRound } from "lucide-react";
 import EmptyState from "../shared/EmptyState";
-import { mockKeys } from "../../data/mock";
-
-// Simulates POST /v1/keys — returns a fake key with value (only time it's shown)
-function mockGenerateKey(label) {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  const rand = Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  return {
-    id:        "key_" + Math.random().toString(36).slice(2, 7),
-    key:       "kontex_" + rand,
-    label:     label || null,
-    createdAt: new Date().toISOString(),
-    active:    true,
-    lastUsed:  null,
-  };
-}
+import { useKeys, useCreateKey, useDeleteKey } from "../../hooks/useKontexAPI";
 
 function NewKeyPanel({ keyValue, onDismiss }) {
   const [copied, setCopied] = useState(false);
@@ -75,30 +61,34 @@ function RevokeConfirm({ onConfirm, onCancel }) {
 }
 
 export default function KeysManager() {
-  const [label, setLabel]             = useState("");
-  const [newKey, setNewKey]           = useState(null);   // shown once after generation
-  const [keys, setKeys]               = useState(mockKeys);
-  const [confirmingId, setConfirmingId] = useState(null); // id being confirmed for revoke
+  const [label, setLabel]               = useState("");
+  const [newKey, setNewKey]             = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null);
+
+  const { data: keys = [], isLoading } = useKeys();
+  const createKey = useCreateKey();
+  const deleteKey = useDeleteKey();
 
   function handleGenerate(e) {
     e.preventDefault();
-    const created = mockGenerateKey(label.trim());
-    setNewKey(created);
-    setLabel("");
-    // Add to list without the key value (as the API would return in GET /v1/keys)
-    setKeys((prev) => [
-      { id: created.id, label: created.label, lastUsed: null, active: true, createdAt: created.createdAt },
-      ...prev,
-    ]);
+    createKey.mutate(
+      { label: label.trim() || undefined },
+      {
+        onSuccess: (data) => {
+          setNewKey(data);
+          setLabel("");
+        },
+      }
+    );
   }
 
   function handleRevoke(id) {
-    // Soft-delete: active: false (mirrors DELETE /v1/keys/:id)
-    setKeys((prev) => prev.filter((k) => k.id !== id));
-    setConfirmingId(null);
+    deleteKey.mutate(id, {
+      onSuccess: () => setConfirmingId(null),
+    });
   }
 
-  const activeKeys = keys.filter((k) => k.active);
+  const activeKeys = keys.filter((k) => k.active !== false);
 
   return (
     <div>
@@ -111,7 +101,7 @@ export default function KeysManager() {
       )}
 
       {/* Generate key form */}
-      <form onSubmit={handleGenerate} className="flex items-center gap-3 mb-6">
+      <form onSubmit={handleGenerate} className="flex items-center gap-3 mb-2">
         <input
           type="text"
           value={label}
@@ -121,21 +111,31 @@ export default function KeysManager() {
         />
         <button
           type="submit"
-          className="px-4 py-2 bg-teal text-bg font-sans font-medium text-sm rounded hover:opacity-90 transition-opacity duration-150"
+          disabled={createKey.isPending}
+          className="px-4 py-2 bg-teal text-bg font-sans font-medium text-sm rounded hover:opacity-90 transition-opacity duration-150 disabled:opacity-40"
         >
-          Generate Key
+          {createKey.isPending ? "Generating…" : "Generate Key"}
         </button>
       </form>
 
+      {/* Inline create error */}
+      {createKey.isError && (
+        <p className="font-sans text-xs text-red mb-4">
+          Failed to generate key. Try again.
+        </p>
+      )}
+
       {/* Keys table */}
-      {activeKeys.length === 0 ? (
+      {isLoading ? (
+        <p className="font-sans text-sm text-subtle py-4">Loading…</p>
+      ) : activeKeys.length === 0 ? (
         <EmptyState
           icon={KeyRound}
           title="No API keys"
           subtitle="Generate one above to authenticate API requests."
         />
       ) : (
-        <div className="border border-border rounded-md overflow-hidden">
+        <div className="border border-border rounded-md overflow-hidden mt-4">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border bg-surface">

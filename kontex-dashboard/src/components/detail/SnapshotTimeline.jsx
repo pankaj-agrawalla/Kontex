@@ -50,7 +50,7 @@ export default function SnapshotTimeline() {
       <div className="flex-1 overflow-auto px-4 py-4">
         {timeline.map((snap, index) => {
           const isSelected = snap.id === activeSnapshotId;
-          const isLast = index === snapshots.length - 1;
+          const isLast = index === timeline.length - 1;
 
           return (
             <div key={snap.id} className="relative flex gap-3">

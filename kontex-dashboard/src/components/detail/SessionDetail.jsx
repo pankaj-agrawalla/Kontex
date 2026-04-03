@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -7,14 +8,20 @@ import ContextInspector from "./ContextInspector";
 import RollbackDrawer from "../rollback/RollbackDrawer";
 import { useSession } from "../../hooks/useTrpc";
 import { useSessionFeed } from "../../sse/useSessionFeed";
+import { useSessionsStore } from "../../store/sessions";
 
 export default function SessionDetail() {
   const navigate = useNavigate();
   const { id: sessionId } = useParams();
   const queryClient = useQueryClient();
-  const { data: session } = useSession(sessionId);
+  const setActiveSession = useSessionsStore((s) => s.setActiveSession);
 
-  useSessionFeed(sessionId, {
+  useEffect(() => {
+    setActiveSession(sessionId);
+  }, [sessionId, setActiveSession]);
+  const { data: session, isError: sessionError } = useSession(sessionId);
+
+  useSessionFeed(sessionId, sessionError ? {} : {
     onSnapshotCreated: (event) => {
       queryClient.setQueryData(["timeline", sessionId], (old) => {
         if (!old) return old;
@@ -29,6 +36,12 @@ export default function SessionDetail() {
       });
     },
   });
+
+  if (sessionError) return (
+    <div className="px-6 py-4">
+      <p className="font-sans text-sm text-red">Failed to load session. Check your connection.</p>
+    </div>
+  );
 
   return (
     <div className="flex flex-col h-full">

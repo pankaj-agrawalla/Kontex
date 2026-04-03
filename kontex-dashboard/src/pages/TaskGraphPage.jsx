@@ -14,12 +14,18 @@ export default function TaskGraphPage() {
         <span className="font-mono text-2xs text-subtle ml-auto">{sessionId}</span>
       </div>
       <div className="flex-1">
-        <TaskGraph
-          nodes={graph?.nodes ?? []}
-          edges={graph?.edges ?? []}
-          isLoading={isLoading}
-          sessionId={sessionId}
-        />
+        {isError ? (
+          <div className="px-6 py-4">
+            <p className="font-sans text-sm text-red">Failed to load data. Check your connection.</p>
+          </div>
+        ) : (
+          <TaskGraph
+            nodes={graph?.nodes ?? []}
+            edges={graph?.edges ?? []}
+            isLoading={isLoading}
+            sessionId={sessionId}
+          />
+        )}
       </div>
     </div>
   );

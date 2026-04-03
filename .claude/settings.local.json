@@ -17,7 +17,11 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
       "Bash(kill %1)",
       "Bash(wc:*)",
-      "Bash(head -50 /c/Users/poona/Documents/kontex/kontex-dashboard/.env*)"
+      "Bash(head -50 /c/Users/poona/Documents/kontex/kontex-dashboard/.env*)",
+      "Bash(docker --version)",
+      "Bash(curl:*)",
+      "Bash(echo \"Backend starting with PID $!\")",
+      "Bash(docker build:*)"
     ]
   }
 }

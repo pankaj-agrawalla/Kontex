@@ -2,7 +2,7 @@ import { useLocation } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, AlertOctagon, CheckCircle } from "lucide-react";
 import { useTimeline } from "../hooks/useTrpc";
-import { useUiStore } from "../store/ui";
+import { useSessionsStore } from "../store/sessions";
 import { computeSignals } from "../utils/signals";
 import EmptyState from "../components/shared/EmptyState";
 
@@ -94,10 +94,21 @@ function MiniTimelineItem({ item, isLast }) {
 
 export default function SignalsPage() {
   const location = useLocation();
-  const sessionId = useUiStore((s) => s.activeSessionId) ?? new URLSearchParams(location.search).get("sessionId");
-  const { data: timeline = [] } = useTimeline(sessionId);
-  const signals = computeSignals(timeline);
+  const sessionId = useSessionsStore((s) => s.activeSessionId) ?? new URLSearchParams(location.search).get("sessionId");
+  const { data: timeline = [], isLoading, isError } = useTimeline(sessionId);
 
+  if (isLoading) return (
+    <div className="px-6 py-4">
+      <p className="font-sans text-sm text-subtle">Loading…</p>
+    </div>
+  );
+  if (isError) return (
+    <div className="px-6 py-4">
+      <p className="font-sans text-sm text-red">Failed to load data. Check your connection.</p>
+    </div>
+  );
+
+  const signals = computeSignals(timeline);
   const criticalCount = signals.filter((s) => s.severity === "critical").length;
   const warningCount  = signals.filter((s) => s.severity === "warning").length;
 

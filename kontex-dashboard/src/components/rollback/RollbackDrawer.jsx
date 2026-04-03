@@ -1,7 +1,7 @@
 import { X, FileCode } from "lucide-react";
 import { useUiStore } from "../../store/ui";
 import { useSessionsStore } from "../../store/sessions";
-import { useRollback, useDiff } from "../../hooks/useTrpc";
+import { useRollback, useDiff, useTimeline } from "../../hooks/useTrpc";
 
 function formatDelta(delta) {
   if (delta >= 0) return `+${delta.toLocaleString()}`;
@@ -12,17 +12,16 @@ export default function RollbackDrawer() {
   const open         = useUiStore((s) => s.rollbackDrawerOpen);
   const closeRollback = useUiStore((s) => s.closeRollback);
 
-  const activeSnapshotId  = useSessionsStore((s) => s.activeSnapshotId);
-  const timelineSnapshots = useSessionsStore((s) => s.timelineSnapshots);
-  const activeSessionId   = useSessionsStore((s) => s.activeSessionId);
+  const activeSnapshotId = useSessionsStore((s) => s.activeSnapshotId);
+  const activeSessionId  = useSessionsStore((s) => s.activeSessionId);
 
   const { mutate: rollback, isPending, isError } = useRollback(activeSessionId);
 
-  const snapshots      = timelineSnapshots[activeSessionId ?? ""] ?? [];
-  const targetSnapshot = snapshots.find((s) => s.id === activeSnapshotId);
+  const { data: timeline = [] } = useTimeline(activeSessionId);
+  const targetSnapshot = timeline.find((s) => s.id === activeSnapshotId);
 
-  // Latest snapshot id for diff: last in timeline that isn't the target
-  const latestId = snapshots[snapshots.length - 1]?.id;
+  // Latest snapshot id for diff: last in timeline
+  const latestId = timeline[timeline.length - 1]?.id;
   const { data: diff } = useDiff(activeSessionId, latestId, activeSnapshotId);
 
   function handleConfirm() {
