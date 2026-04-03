@@ -79,3 +79,10 @@ export function useDiff(sessionId, fromId, toId) {
     }
   )
 }
+
+export function useGraph(sessionId) {
+  return trpc.dashboard.graph.useQuery(
+    { sessionId },
+    { enabled: !!sessionId, queryKey: ["graph", sessionId] }
+  )
+}

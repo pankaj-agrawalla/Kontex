@@ -1,9 +1,11 @@
 import { useSearchParams } from "react-router-dom";
 import TaskGraph from "../components/graph/TaskGraph";
+import { useGraph } from "../hooks/useTrpc";
 
 export default function TaskGraphPage() {
   const [searchParams] = useSearchParams();
-  const sessionId = searchParams.get("sessionId") ?? "sess_01";
+  const sessionId = searchParams.get("sessionId");
+  const { data: graph, isLoading, isError } = useGraph(sessionId);
 
   return (
     <div className="flex flex-col h-full">
@@ -12,7 +14,12 @@ export default function TaskGraphPage() {
         <span className="font-mono text-2xs text-subtle ml-auto">{sessionId}</span>
       </div>
       <div className="flex-1">
-        <TaskGraph sessionId={sessionId} />
+        <TaskGraph
+          nodes={graph?.nodes ?? []}
+          edges={graph?.edges ?? []}
+          isLoading={isLoading}
+          sessionId={sessionId}
+        />
       </div>
     </div>
   );

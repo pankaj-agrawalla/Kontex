@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { GitGraph } from "lucide-react";
+import { GitBranch } from "lucide-react";
 import ReactFlow, {
   Background,
   Controls,
@@ -9,7 +9,6 @@ import ReactFlow, {
   BackgroundVariant,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { mockGraph } from "../../data/mock";
 import EmptyState from "../shared/EmptyState";
 
 // Status → Tailwind class mappings
@@ -95,31 +94,27 @@ const defaultEdgeOptions = {
   style: { stroke: "#3A3A42", strokeWidth: 1.5 },
 };
 
-export default function TaskGraph({ sessionId }) {
+export default function TaskGraph({ nodes, edges, isLoading, sessionId }) {
   const navigate = useNavigate();
 
-  if (mockGraph.nodes.length === 0) {
+  if (!isLoading && !nodes?.length) {
     return (
       <EmptyState
-        icon={GitGraph}
-        title="No tasks yet"
-        subtitle="Tasks will appear here as the agent works through the session."
+        icon={GitBranch}
+        title="No tasks"
+        subtitle="Tasks appear here as agents work."
       />
     );
   }
 
-  const initialNodes = mockGraph.nodes.map((n) => ({
-    ...n,
-    type: "taskNode",
-  }));
-
-  const initialEdges = mockGraph.edges.map((e) => ({
+  const typedNodes = nodes.map((n) => ({ ...n, type: "taskNode" }));
+  const styledEdges = edges.map((e) => ({
     ...e,
     style: { stroke: "#3A3A42", strokeWidth: 1.5 },
   }));
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  const [rfNodes, , onNodesChange] = useNodesState(typedNodes);
+  const [rfEdges, , onEdgesChange] = useEdgesState(styledEdges);
 
   const onNodeClick = useCallback(() => {
     if (sessionId) {
@@ -130,8 +125,8 @@ export default function TaskGraph({ sessionId }) {
   return (
     <div className="w-full h-full bg-bg">
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={rfNodes}
+        edges={rfEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
