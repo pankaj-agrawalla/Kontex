@@ -40,7 +40,8 @@
       "Bash(dotenv -e .env -- tsx watch src/index.ts)",
       "Bash(xargs -r -I{} taskkill //F //PID {})",
       "Bash(true sleep:*)",
-      "Bash(ls /c/Users/poona/Documents/kontex/kontex-dashboard/.env*)"
+      "Bash(ls /c/Users/poona/Documents/kontex/kontex-dashboard/.env*)",
+      "Bash(ls:*)"
     ]
   }
 }

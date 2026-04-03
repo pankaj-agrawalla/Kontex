@@ -1,33 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { Layers, BarChart3, AlertTriangle, History, GitCompare, Search, Settings } from "lucide-react";
-import { mockSessionsResponse, mockSignals } from "../../data/mock";
-
-const totalSignals = mockSignals.filter((s) => s.severity === "CRITICAL" || s.severity === "WARNING").length;
-const totalSessions = mockSessionsResponse.data.length;
-
-const NAV = [
-  {
-    section: "Overview",
-    items: [
-      { to: "/",       icon: Layers,        label: "Sessions",        badge: String(totalSessions), badgeVariant: "neutral" },
-      { to: "/usage",  icon: BarChart3,     label: "Usage",           badge: null },
-    ],
-  },
-  {
-    section: "Diagnostics",
-    items: [
-      { to: "/signals",  icon: AlertTriangle, label: "Signals",  badge: totalSignals > 0 ? String(totalSignals) : null, badgeVariant: "warn" },
-      { to: "/timeline", icon: History,       label: "Timeline", badge: null },
-      { to: "/diff",     icon: GitCompare,    label: "Diff view", badge: null },
-    ],
-  },
-  {
-    section: "Search",
-    items: [
-      { to: "/search", icon: Search, label: "Semantic search", badge: null },
-    ],
-  },
-];
+import { useSessions } from "../../hooks/useTrpc";
 
 function NavItem({ to, icon: Icon, label, badge, badgeVariant }) {
   return (
@@ -69,6 +42,33 @@ function NavItem({ to, icon: Icon, label, badge, badgeVariant }) {
 }
 
 export default function Sidebar() {
+  const { data: sessionsData } = useSessions();
+  const totalSessions = sessionsData?.data?.length ?? 0;
+
+  const NAV = [
+    {
+      section: "Overview",
+      items: [
+        { to: "/",       icon: Layers,        label: "Sessions",        badge: String(totalSessions), badgeVariant: "neutral" },
+        { to: "/usage",  icon: BarChart3,     label: "Usage",           badge: null },
+      ],
+    },
+    {
+      section: "Diagnostics",
+      items: [
+        { to: "/signals",  icon: AlertTriangle, label: "Signals",       badge: null, badgeVariant: "warn" },
+        { to: "/timeline", icon: History,       label: "Timeline",      badge: null },
+        { to: "/diff",     icon: GitCompare,    label: "Diff view",     badge: null },
+      ],
+    },
+    {
+      section: "Search",
+      items: [
+        { to: "/search", icon: Search, label: "Semantic search", badge: null },
+      ],
+    },
+  ];
+
   return (
     <aside className="flex flex-col h-screen w-[220px] shrink-0 bg-surface border-r border-border overflow-hidden">
       {/* Logo */}

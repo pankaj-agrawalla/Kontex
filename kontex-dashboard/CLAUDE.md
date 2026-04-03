@@ -1,6 +1,6 @@
 # CLAUDE.md — Kontex Dashboard 2.0
 
-Read this file completely before writing any code. Sprint prompts are in `../kontex-dashboard-2.0-buildguide.md` — execute them from there.
+Read this file completely before writing any code. Sprint prompts are in `kontex-dashboard-2.0-buildguide.md` — execute them from there.
 
 ---
 

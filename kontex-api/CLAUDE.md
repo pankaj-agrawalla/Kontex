@@ -1,6 +1,6 @@
 # CLAUDE.md — Kontex API Backend 2.0
 
-Read this file completely before writing any code. Sprint prompts are in `kontex-backend-2.0-buildguide.md` — execute them from there.
+Read this file completely before writing any code. Sprint prompts are in `kontex-dashboard-2.0-buildguide.md` — execute them from there.
 
 ---
 
@@ -316,10 +316,11 @@ startCommand = "node dist/workers/span.worker.js"
 |---|---|---|
 | 1–8 | ✅ Complete | Foundation, snapshots, proxy, log watcher, rollback, MCP, dashboard, deploy |
 | **9** | ✅ Complete | **OpenLLMetry OTLP ingest — primary capture path** |
-| **10** | **Build** | **tRPC + SSE — dashboard API + real-time feed** |
-| **11** | **Build** | **MCP read tools — agents query their own context** |
+| **10** | ✅ Complete | **tRPC + SSE — dashboard API + real-time feed** |
+| **11** | ✅ Complete | **MCP read tools — agents query their own context** |
+| **Dashboard 1** | 🔨 In Progress | **tRPC client, QueryClient, ApiKeyGate, REST base fetcher** |
 
-Complete all done criteria for a sprint before starting the next. Sprint 11 may be executed independently of Sprint 10.
+Complete all done criteria for a sprint before starting the next.
 
 ---
 
@@ -355,8 +356,8 @@ GET /health
 
 ```bash
 cd kontex-api
-# Open kontex-backend-2.0-buildguide.md
+# Open kontex-dashboard-2.0-buildguide.md
 # Navigate to the current sprint and execute prompts in order
 
-# When resuming: "Read CLAUDE.md. We are on Sprint 10, Prompt 10.4. Continue from 10.4."
+# When resuming: "Read CLAUDE.md. We are on Dashboard Sprint 1. Continue from where we left off."
 ```

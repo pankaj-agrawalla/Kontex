@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { Layers } from "lucide-react";
-import { mockSessionsResponse } from "../../data/mock";
+import { useSessions } from "../../hooks/useTrpc";
 import StatusBadge from "./StatusBadge";
 import EmptyState from "../shared/EmptyState";
 
@@ -34,16 +34,8 @@ function SkeletonRow() {
 
 export default function SessionList() {
   const [activeFilter, setActiveFilter] = useState(null);
-  const [loading, setLoading]           = useState(true);
-
-  useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 1200);
-    return () => clearTimeout(t);
-  }, []);
-
-  const sessions = mockSessionsResponse.data.filter(
-    (s) => activeFilter === null || s.status === activeFilter
-  );
+  const { data, isLoading, isError } = useSessions(activeFilter);
+  const sessions = data?.data ?? [];
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -67,11 +59,14 @@ export default function SessionList() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        {!loading && sessions.length === 0 ? (
+        {isError && (
+          <p className="px-6 py-4 font-sans text-sm text-red">Failed to load sessions.</p>
+        )}
+        {!isLoading && !isError && sessions.length === 0 ? (
           <EmptyState
             icon={Layers}
-            title="No sessions match this filter"
-            subtitle="Try a different status filter or create a new session via the API."
+            title="No sessions"
+            subtitle="Create a session via the API or proxy."
           />
         ) : (
           <table className="w-full border-collapse">
@@ -88,7 +83,7 @@ export default function SessionList() {
               </tr>
             </thead>
             <tbody>
-              {loading
+              {isLoading
                 ? [0, 1, 2].map((i) => <SkeletonRow key={i} />)
                 : sessions.map((s) => <SessionRow key={s.id} session={s} />)}
             </tbody>

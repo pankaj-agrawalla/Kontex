@@ -1,8 +1,4 @@
-import { mockSessionsResponse, mockSignals } from "../../data/mock";
-
-const totalSnapshots = mockSessionsResponse.data.reduce((s, x) => s + x.snapshotCount, 0);
-const totalTokens    = mockSessionsResponse.data.reduce((s, x) => s + x.tokenTotal, 0);
-const activeSignals  = mockSignals.length;
+import { useUsage, useSessions } from "../../hooks/useTrpc";
 
 function formatTokens(n) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
@@ -10,38 +6,45 @@ function formatTokens(n) {
   return String(n);
 }
 
-const CARDS = [
-  {
-    label:    "Total Sessions",
-    value:    String(mockSessionsResponse.data.length),
-    sub:      `${mockSessionsResponse.data.filter((s) => s.status === "ACTIVE").length} active`,
-    subColor: "text-teal",
-    accent:   "border-teal",
-  },
-  {
-    label:    "Snapshots Captured",
-    value:    totalSnapshots.toLocaleString(),
-    sub:      "across all sessions",
-    subColor: "text-subtle",
-    accent:   "border-[#63B3ED]",
-  },
-  {
-    label:    "Tokens Stored",
-    value:    formatTokens(totalTokens),
-    sub:      "total context captured",
-    subColor: "text-subtle",
-    accent:   "border-amber",
-  },
-  {
-    label:    "Active Signals",
-    value:    String(activeSignals),
-    sub:      `${mockSignals.filter((s) => s.severity === "CRITICAL").length} critical`,
-    subColor: activeSignals > 0 ? "text-red" : "text-subtle",
-    accent:   "border-red",
-  },
-];
-
 export default function StatCards() {
+  const { data: usage } = useUsage();
+  const { data: sessionsData } = useSessions();
+  const sessions = sessionsData?.data ?? [];
+
+  const totalSignals = sessions.reduce((n, s) =>
+    n + (s.signals?.critical ?? 0) + (s.signals?.warning ?? 0), 0);
+
+  const CARDS = [
+    {
+      label:    "Total Sessions",
+      value:    usage?.total_sessions?.toLocaleString() ?? "—",
+      sub:      usage ? `${usage.active_sessions} active` : "—",
+      subColor: "text-teal",
+      accent:   "border-teal",
+    },
+    {
+      label:    "Snapshots Captured",
+      value:    usage?.total_snapshots?.toLocaleString() ?? "—",
+      sub:      "across all sessions",
+      subColor: "text-subtle",
+      accent:   "border-[#63B3ED]",
+    },
+    {
+      label:    "Tokens Stored",
+      value:    usage ? formatTokens(usage.total_tokens_stored) : "—",
+      sub:      "total context captured",
+      subColor: "text-subtle",
+      accent:   "border-amber",
+    },
+    {
+      label:    "Active Signals",
+      value:    String(totalSignals),
+      sub:      totalSignals > 0 ? `${totalSignals} total` : "none",
+      subColor: totalSignals > 0 ? "text-red" : "text-subtle",
+      accent:   "border-red",
+    },
+  ];
+
   return (
     <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-border shrink-0">
       {CARDS.map((c) => (
