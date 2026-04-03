@@ -1,14 +1,34 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { mockSession } from "../../data/mock";
+import { useQueryClient } from "@tanstack/react-query";
 import StatusBadge from "../sessions/StatusBadge";
 import SnapshotTimeline from "./SnapshotTimeline";
 import ContextInspector from "./ContextInspector";
 import RollbackDrawer from "../rollback/RollbackDrawer";
+import { useSession } from "../../hooks/useTrpc";
+import { useSessionFeed } from "../../sse/useSessionFeed";
 
 export default function SessionDetail() {
   const navigate = useNavigate();
-  const session  = mockSession;
+  const { id: sessionId } = useParams();
+  const queryClient = useQueryClient();
+  const { data: session } = useSession(sessionId);
+
+  useSessionFeed(sessionId, {
+    onSnapshotCreated: (event) => {
+      queryClient.setQueryData(["timeline", sessionId], (old) => {
+        if (!old) return old;
+        const newEntry = {
+          id: event.snapshotId,
+          label: event.label ?? "New checkpoint",
+          tokenTotal: event.tokenTotal ?? 0,
+          source: event.source ?? "proxy",
+          createdAt: event.createdAt ?? new Date().toISOString(),
+        };
+        return [...old, newEntry];
+      });
+    },
+  });
 
   return (
     <div className="flex flex-col h-full">
@@ -22,10 +42,10 @@ export default function SessionDetail() {
           <ArrowLeft size={16} />
         </button>
         <h1 className="font-sans font-medium text-base text-text">
-          {session.name}
+          {session?.name}
         </h1>
-        <StatusBadge status={session.status} />
-        {session.taskCount !== undefined && (
+        {session && <StatusBadge status={session.status} />}
+        {session?.taskCount !== undefined && (
           <span className="font-mono text-2xs text-subtle ml-auto">
             {session.taskCount} task{session.taskCount !== 1 ? "s" : ""}
           </span>

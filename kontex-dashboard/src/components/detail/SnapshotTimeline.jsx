@@ -1,6 +1,7 @@
 import { formatDistanceToNow } from "date-fns";
 import { useSessionsStore } from "../../store/sessions";
 import { useUiStore } from "../../store/ui";
+import { useTimeline } from "../../hooks/useTrpc";
 
 const SOURCE_STYLES = {
   proxy:       { bg: "bg-teal/10",   text: "text-teal",   label: "proxy"       },
@@ -27,17 +28,27 @@ export default function SnapshotTimeline() {
   const activeSessionId  = useSessionsStore((s) => s.activeSessionId);
   const activeSnapshotId = useSessionsStore((s) => s.activeSnapshotId);
   const setActiveSnapshot = useSessionsStore((s) => s.setActiveSnapshot);
-  const timelineSnapshots = useSessionsStore((s) => s.timelineSnapshots);
   const openRollback      = useUiStore((s) => s.openRollback);
 
-  const snapshots = timelineSnapshots[activeSessionId ?? "sess_01"] ?? [];
-  const lastId    = snapshots[snapshots.length - 1]?.id;
+  const { data: timeline = [], isLoading } = useTimeline(activeSessionId);
+
+  const lastId      = timeline[timeline.length - 1]?.id;
   const canRollback = activeSnapshotId && activeSnapshotId !== lastId;
+
+  if (isLoading) {
+    return (
+      <div className="p-4 space-y-2">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-12 bg-muted rounded animate-pulse" />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto px-4 py-4">
-        {snapshots.map((snap, index) => {
+        {timeline.map((snap, index) => {
           const isSelected = snap.id === activeSnapshotId;
           const isLast = index === snapshots.length - 1;
 

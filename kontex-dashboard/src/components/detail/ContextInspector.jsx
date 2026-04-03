@@ -2,9 +2,9 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, FileCode } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Scan } from "lucide-react";
-import { mockSnapshot } from "../../data/mock";
 import { useSessionsStore } from "../../store/sessions";
 import EmptyState from "../shared/EmptyState";
+import { useSnapshot, useSnapshotBundle } from "../../hooks/useTrpc";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -226,21 +226,28 @@ function LogEventsSection({ logEvents, enriched }) {
 export default function ContextInspector() {
   const activeSnapshotId = useSessionsStore((s) => s.activeSnapshotId);
 
-  // In production this is replaced by a React Query hook fetching /v1/snapshots/:id.
-  // For mock: show mockSnapshot for any selected id.
-  const snapshot = activeSnapshotId ? mockSnapshot : null;
+  const { data: snapshot } = useSnapshot(activeSnapshotId);
+  const { data: bundle } = useSnapshotBundle(activeSnapshotId);
 
-  if (!activeSnapshotId || !snapshot) {
+  if (!activeSnapshotId) {
     return (
       <EmptyState
-        icon={Scan}
+        icon={FileCode}
         title="Select a checkpoint"
-        subtitle="Choose a snapshot from the timeline to inspect its context state"
+        subtitle="Choose a snapshot from the timeline to inspect its context."
       />
     );
   }
 
-  const { bundle } = snapshot;
+  if (!snapshot || !bundle) {
+    return (
+      <div className="p-4 space-y-2">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-12 bg-muted rounded animate-pulse" />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

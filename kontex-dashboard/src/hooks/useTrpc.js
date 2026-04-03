@@ -24,3 +24,26 @@ export function useUsage() {
     { queryKey: ["usage"], staleTime: 60_000 }
   )
 }
+
+// ── Snapshots ─────────────────────────────────────────────────────────────────
+
+export function useTimeline(sessionId) {
+  return trpc.dashboard.timeline.useQuery(
+    { sessionId },
+    { enabled: !!sessionId, queryKey: ["timeline", sessionId] }
+  )
+}
+
+export function useSnapshotBundle(snapshotId) {
+  return trpc.snapshots.bundle.useQuery(
+    { id: snapshotId },
+    { enabled: !!snapshotId, queryKey: ["bundle", snapshotId] }
+  )
+}
+
+export function useSnapshot(snapshotId) {
+  return trpc.snapshots.byId.useQuery(
+    { id: snapshotId },
+    { enabled: !!snapshotId, queryKey: ["snapshot", snapshotId] }
+  )
+}
