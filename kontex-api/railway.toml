@@ -14,3 +14,7 @@ name = "kontex-api"
 [[services]]
 name = "kontex-embed-worker"
 startCommand = "node dist/workers/embed.worker.js"
+
+[[services]]
+name = "kontex-span-worker"
+startCommand = "node dist/workers/span.worker.js"

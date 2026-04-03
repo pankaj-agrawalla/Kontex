@@ -13,6 +13,7 @@
   "scripts": {
     "dev": "dotenv -e .env -- tsx watch src/index.ts",
     "worker": "dotenv -e .env -- tsx watch src/workers/embed.worker.ts",
+    "span-worker": "dotenv -e .env -- tsx watch src/workers/span.worker.ts",
     "watch": "dotenv -e .env -- tsx watcher/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",

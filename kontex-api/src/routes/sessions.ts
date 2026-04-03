@@ -12,9 +12,10 @@ const createSchema = z.object({
 });
 
 const updateSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  description: z.string().max(500).optional(),
-  status: z.enum(["ACTIVE", "PAUSED", "COMPLETED"]).optional(),
+  name:            z.string().min(1).max(200).optional(),
+  description:     z.string().max(500).optional(),
+  status:          z.enum(["ACTIVE", "PAUSED", "COMPLETED"]).optional(),
+  externalTraceId: z.string().optional(),
 });
 
 function sessionResponse(s: {
@@ -22,6 +23,7 @@ function sessionResponse(s: {
   name: string;
   description: string | null;
   status: string;
+  externalTraceId?: string | null;
   createdAt: Date;
   updatedAt: Date;
   _count?: { tasks: number };
@@ -31,6 +33,7 @@ function sessionResponse(s: {
     name: s.name,
     description: s.description,
     status: s.status,
+    externalTraceId: s.externalTraceId ?? null,
     ...(s._count !== undefined ? { taskCount: s._count.tasks } : {}),
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
@@ -213,6 +216,48 @@ sessions.get("/:sessionId/tasks", async (c) => {
   });
 
   return c.json({ data: buildTree(allTasks) });
+});
+
+const linkTraceSchema = z.object({
+  traceId: z.string().min(1),
+});
+
+// POST /v1/sessions/:id/link-trace
+sessions.post("/:id/link-trace", async (c) => {
+  const session = await db.session.findFirst({
+    where: { id: c.req.param("id"), userId: c.get("userId") },
+  });
+  if (!session) {
+    return c.json({ error: "not_found", message: "Session not found" }, 404);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const result = linkTraceSchema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      { error: "validation_error", message: "Invalid request body", details: result.error.flatten() },
+      400
+    );
+  }
+
+  const { traceId } = result.data;
+
+  if (session.externalTraceId !== null && session.externalTraceId !== traceId) {
+    return c.json(
+      {
+        error: "conflict",
+        message: "Session already linked to a different traceId. Create a new session for a new trace.",
+      },
+      409
+    );
+  }
+
+  if (session.externalTraceId === traceId) {
+    return c.json({ sessionId: session.id, externalTraceId: traceId });
+  }
+
+  await db.session.update({ where: { id: session.id }, data: { externalTraceId: traceId } });
+  return c.json({ sessionId: session.id, externalTraceId: traceId });
 });
 
 export default sessions;

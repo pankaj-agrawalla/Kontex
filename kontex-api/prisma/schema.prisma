@@ -27,15 +27,16 @@ model ApiKey {
 }
 
 model Session {
-  id          String        @id @default(cuid())
-  userId      String
-  user        User          @relation(fields: [userId], references: [id])
-  name        String
-  description String?
-  status      SessionStatus @default(ACTIVE)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  tasks       Task[]
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  name            String
+  description     String?
+  status          SessionStatus @default(ACTIVE)
+  externalTraceId String?       @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  tasks           Task[]
 }
 
 enum SessionStatus {
@@ -78,4 +79,27 @@ model Snapshot {
   enrichedAt DateTime?
   embedded   Boolean   @default(false)
   createdAt  DateTime  @default(now())
+}
+
+model OtelSpan {
+  id            String         @id @default(cuid())
+  traceId       String
+  spanId        String         @unique
+  parentSpanId  String?
+  serviceName   String
+  operationName String
+  spanKind      String         @default("unknown")
+  startTime     DateTime
+  endTime       DateTime
+  durationMs    Int
+  attributes    Json
+  snapshotId    String?
+  status        OtelSpanStatus @default(PENDING)
+  createdAt     DateTime       @default(now())
+}
+
+enum OtelSpanStatus {
+  PENDING
+  PROCESSED
+  FAILED
 }

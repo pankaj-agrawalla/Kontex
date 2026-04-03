@@ -32,7 +32,7 @@ export interface ContextBundle {
   capturedAt: string
   model: string
   tokenTotal: number
-  source: "proxy" | "log_watcher" | "mcp"
+  source: "proxy" | "log_watcher" | "mcp" | "openllmetry"
   enriched: boolean
   files: ContextFile[]
   toolCalls: ToolCall[]

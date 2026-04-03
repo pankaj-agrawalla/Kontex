@@ -6,4 +6,4 @@ export interface ApiError {
   details?: unknown
 }
 
-export type SnapshotSource = "proxy" | "log_watcher" | "mcp"
+export type SnapshotSource = "proxy" | "log_watcher" | "mcp" | "openllmetry"

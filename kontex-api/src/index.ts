@@ -14,6 +14,7 @@ import enrich from "./routes/enrich";
 import mcpRoute from "./routes/mcp";
 import dashboard from "./routes/dashboard";
 import keys from "./routes/keys";
+import ingest from "./routes/ingest";
 import { rateLimit } from "./middleware/ratelimit";
 import type { Variables } from "./types/api";
 
@@ -36,6 +37,7 @@ app.route("/v1/tasks", tasks);
 app.route("/v1", snapshots);
 app.route("/v1", dashboard);
 app.route("/v1/keys", keys);
+app.route("/ingest", ingest);
 
 const port = Number(config.PORT);
 
